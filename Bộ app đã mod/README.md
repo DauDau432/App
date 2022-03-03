@@ -1,1 +1,1 @@
-Full bộ app đã mod premium & việt hóa
+Full bộ app đã crack & mod premium & việt hóa
