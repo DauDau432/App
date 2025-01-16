@@ -15,3 +15,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/
 ```
 bash <(curl -Ls https://h2cloud.vn/repo/repo.sh)
 ```
+***check os***
+```
+bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/os.sh)
+```
