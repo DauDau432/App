@@ -5,9 +5,7 @@
 ```
 irm https://massgrave.dev/get | iex
 ```
-```
-irm win.msgang.com | iex
-```
+
 ***update repo***
 ```
 bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/repo.sh)
