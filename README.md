@@ -17,3 +17,7 @@ bash <(curl -Ls https://h2cloud.vn/repo/repo.sh)
 ```
 bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/os.sh)
 ```
+***sửa lỗi phân vùng***
+```
+bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/auto-expand-root.sh)
+```
