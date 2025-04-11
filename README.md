@@ -21,3 +21,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/
 ```
 bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/auto-expand-root.sh)
 ```
+***mở giới hạn hệ thống***
+```
+bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/ulimit_max_tuner.sh)
+```
