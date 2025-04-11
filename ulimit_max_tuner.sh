@@ -14,6 +14,17 @@ function print_current_limits() {
     echo
 }
 
+function ask_reboot() {
+    echo
+    read -p "[>>] Bạn có muốn khởi động lại ngay? (y/n): " confirm
+    if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        echo -e "${YELLOW}[>>] Đang khởi động lại hệ thống...${NC}"
+        reboot
+    else
+        echo -e "${GREEN}[+] Bạn đã chọn KHÔNG khởi động lại. Hãy nhớ reboot sau nếu cần.${NC}"
+    fi
+}
+
 function increase_limits_max() {
     echo -e "${GREEN}[+] Đang tăng giới hạn lên tối đa tuyệt đối...${NC}"
 
@@ -44,18 +55,16 @@ EOF
 
     sysctl -p >/dev/null
     echo -e "${GREEN}[+] Đã áp dụng cấu hình tối đa.${NC}"
-    echo -e "${YELLOW}[>>] Nên khởi động lại hệ thống để đảm bảo hiệu lực đầy đủ.${NC}"
+    ask_reboot
 }
 
 function auto_config_limits() {
     echo -e "${YELLOW}[>>] Đang tính toán cấu hình tự động theo tài nguyên VPS...${NC}"
 
-    # Lấy RAM và CPU
     TOTAL_RAM_GB=$(awk '/MemTotal/ {printf "%.0f", $2 / 1024 / 1024}' /proc/meminfo)
     TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%.0f", $2 / 1024}' /proc/meminfo)
     CPU_CORES=$(nproc)
 
-    # Tính toán giá trị
     NOFILE=$((TOTAL_RAM_GB * 16384))
     NPROC=$((TOTAL_RAM_MB * 2))
     PID_MAX=$((NPROC * 3 / 2))
@@ -93,7 +102,7 @@ EOF
 
     sysctl -p >/dev/null
     echo -e "${GREEN}[+] Đã cấu hình theo tài nguyên VPS.${NC}"
-    echo -e "${YELLOW}[>>] Khởi động lại để mọi giới hạn được áp dụng hoàn toàn.${NC}"
+    ask_reboot
 }
 
 function reset_defaults() {
@@ -113,7 +122,7 @@ function reset_defaults() {
     sysctl -p >/dev/null
 
     echo -e "${RED}[-] Đã khôi phục về mặc định.${NC}"
-    echo -e "${YELLOW}[>>] Vui lòng khởi động lại để cấu hình được áp dụng lại hoàn toàn.${NC}"
+    ask_reboot
 }
 
 # === MAIN ===
