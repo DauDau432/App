@@ -25,7 +25,18 @@ if [[ "$ROOT_DEVICE" != /dev/mapper/* ]]; then
     exit 1
 fi
 
-# Thực thi mở rộng phù hợp với loại FS
+# Lấy tên Volume Group (VG) và Logical Volume (LV)
+VG_NAME=$(vgdisplay | grep 'VG Name' | awk '{print $3}')
+LV_NAME=$(lvdisplay "$ROOT_DEVICE" | grep 'LV Path' | awk '{print $3}')
+
+echo "[+] Volume Group: $VG_NAME"
+echo "[+] Logical Volume: $LV_NAME"
+
+# Mở rộng LV
+echo "[>] Mở rộng Logical Volume thêm 100% dung lượng trống..."
+lvextend -l +100%FREE "$LV_NAME"
+
+# Mở rộng filesystem
 case "$FSTYPE" in
     ext4)
         echo "[>] Mở rộng EXT4 với resize2fs..."
@@ -42,4 +53,4 @@ case "$FSTYPE" in
 esac
 
 echo "[+] Đã hoàn tất mở rộng. Thông tin hiện tại:"
-df -Th /
+df -Th
