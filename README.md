@@ -25,3 +25,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/
 ```
 bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/ulimit_max_tuner.sh)
 ```
+***tắt all firewall***
+```
+bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/disable_firewalls.sh)
+```
