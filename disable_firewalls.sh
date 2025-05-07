@@ -1,4 +1,5 @@
 #!/bin/bash
+clear
 echo ""
 echo "[+] Xác định hệ điều hành..."
 
