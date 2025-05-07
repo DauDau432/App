@@ -1,6 +1,6 @@
 #!/bin/bash
-
-echo "[+] Phát hiện hệ điều hành..."
+echo ""
+echo "[+] Xác định hệ điều hành..."
 
 if [ -f /etc/os-release ]; then
     . /etc/os-release
@@ -10,7 +10,7 @@ else
     exit 1
 fi
 
-echo "[+] Hệ điều hành phát hiện: $PRETTY_NAME"
+echo "[+] Hệ điều hành: $PRETTY_NAME"
 
 disable_firewall() {
     local service_name=$1
