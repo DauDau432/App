@@ -2,17 +2,21 @@
 
 # Hàm hiển thị thông báo
 log() {
-    echo "[+] $1"
+    echo "[+] $1" | tee -a /var/log/auto-expand-root.log
 }
 
 error() {
-    echo "[x] $1"
+    echo "[!] Lỗi: $1" | tee -a /var/log/auto-expand-root.log
     exit 1
 }
 
 warning() {
-    echo "[!] $1"
+    echo "[!] Cảnh báo: $1" | tee -a /var/log/auto-expand-root.log
 }
+
+# Tạo log file nếu chưa tồn tại
+mkdir -p /var/log
+touch /var/log/auto-expand-root.log
 
 # Kiểm tra quyền root
 if [ "$(id -u)" -ne 0 ]; then
@@ -23,7 +27,6 @@ log "Bắt đầu kiểm tra và mở rộng phân vùng root..."
 
 # Lấy thông tin thiết bị gắn với /
 ROOT_DEVICE=$(findmnt -n -o SOURCE /) || error "Không tìm thấy thiết bị root."
-# Lấy loại filesystem
 FSTYPE=$(findmnt -n -o FSTYPE /) || error "Không xác định được filesystem."
 
 log "Thiết bị root: $ROOT_DEVICE"
@@ -31,197 +34,192 @@ log "Filesystem: $FSTYPE"
 
 # Kiểm tra có phải LVM không
 if [[ "$ROOT_DEVICE" != /dev/mapper/* ]]; then
-    error "Root không nằm trên LVM. Dừng script."
+    error "Root không nằm trên LVM. Script chỉ hỗ trợ LVM."
 fi
 
 # Lấy tên Volume Group (VG) và Logical Volume (LV)
-VG_NAME=$(vgdisplay | awk '/VG Name/{print $3; exit}') || error "Không tìm thấy Volume Group."
-LV_PATH=$(lvdisplay "$ROOT_DEVICE" | awk '/LV Path/{print $3; exit}') || error "Không tìm thấy Logical Volume."
+VG_NAME=$(vgdisplay --noheadings -C -o vg_name 2>/dev/null | head -n 1) || error "Không tìm thấy Volume Group."
+LV_PATH=$(lvdisplay "$ROOT_DEVICE" 2>/dev/null | awk '/LV Path/{print $3; exit}') || error "Không tìm thấy Logical Volume."
 
 log "Volume Group: $VG_NAME"
 log "Logical Volume: $LV_PATH"
 
-# Xác định ổ đĩa vật lý chính
-# Lấy disk từ physical volume trong VG
-PV_LIST=$(pvdisplay | grep "PV Name" | awk '{print $3}')
+# Tìm ổ đĩa vật lý từ Physical Volume (PV)
+PV_LIST=$(pvdisplay 2>/dev/null | awk '/PV Name/{print $3}')
 DISK_LIST=""
 
 for PV in $PV_LIST; do
-    if [[ $PV == /dev/sd* ]]; then
-        # Lấy tên ổ đĩa (sda, sdb,...) từ đường dẫn như /dev/sda1
-        DISK=$(echo $PV | sed 's/[0-9]*$//' | sed 's|/dev/||')
-        if [[ ! $DISK_LIST =~ $DISK ]]; then
-            DISK_LIST="$DISK_LIST $DISK"
-        fi
-    elif [[ $PV == /dev/vd* ]]; then
-        # Cho VPS dùng ổ đĩa ảo (vda, vdb,...)
-        DISK=$(echo $PV | sed 's/[0-9]*$//' | sed 's|/dev/||')
+    if [[ $PV == /dev/sd* || $PV == /dev/vd* || $PV == /dev/nvme* ]]; then
+        DISK=$(echo "$PV" | sed 's/[0-9]*$//' | sed 's|/dev/||' | sed 's/p[0-9]*$//')
         if [[ ! $DISK_LIST =~ $DISK ]]; then
             DISK_LIST="$DISK_LIST $DISK"
         fi
     fi
 done
 
-# Nếu không tìm thấy ổ đĩa từ PV, thử phương pháp thứ 2
-if [ -z "$DISK_LIST" ]; then
-    # Kiểm tra các ổ đĩa phổ biến
-    for DISK in sda vda xvda nvme0n1; do
-        if [ -e "/dev/$DISK" ]; then
-            DISK_LIST="$DISK_LIST $DISK"
-        fi
-    done
-fi
-
-# Vẫn không tìm thấy, thử liệt kê tất cả ổ đĩa
+# Nếu không tìm thấy, thử liệt kê các ổ đĩa phổ biến
 if [ -z "$DISK_LIST" ]; then
     DISK_LIST=$(lsblk -pno name | grep -E '/dev/sd|/dev/vd|/dev/xvd|/dev/nvme' | sed 's|/dev/||' | awk -F'[0-9]' '{print $1}' | sort -u)
 fi
 
 if [ -z "$DISK_LIST" ]; then
-    error "Không thể xác định ổ đĩa chính. Vui lòng kiểm tra thủ công với lệnh 'lsblk'."
+    error "Không tìm thấy ổ đĩa. Kiểm tra thủ công với 'lsblk'."
 fi
 
 log "Danh sách ổ đĩa tìm thấy: $DISK_LIST"
 
-UNALLOCATED_SPACE_FOUND=0
+# Biến kiểm tra xem có không gian trống được sử dụng không
+SPACE_ADDED=0
 
 # Kiểm tra từng ổ đĩa
 for DISK in $DISK_LIST; do
     log "Kiểm tra ổ đĩa /dev/$DISK..."
-    
-    # Xác định loại bảng phân vùng (GPT hoặc MBR)
+
+    # Kiểm tra loại bảng phân vùng
     PART_TABLE=$(parted /dev/$DISK print 2>/dev/null | grep "Partition Table:" | awk '{print $3}')
     log "Loại bảng phân vùng: $PART_TABLE"
-    
-    # Kiểm tra không gian chưa phân vùng
-    UNALLOCATED=$(parted /dev/$DISK print free 2>/dev/null | grep "Free Space" | sort -k1,1n)
-    
+
+    # Kiểm tra số lượng phân vùng hiện tại
+    PART_COUNT=$(parted /dev/$DISK print 2>/dev/null | grep -c "^ [0-9]")
+    if [ "$PART_COUNT" -ge 128 ] && [ "$PART_TABLE" = "gpt" ]; then
+        warning "Đã đạt giới hạn 128 phân vùng trên /dev/$DISK. Bỏ qua."
+        continue
+    fi
+
+    # Lấy không gian chưa phân vùng
+    UNALLOCATED=$(parted /dev/$DISK unit MB print free 2>/dev/null | grep "Free Space" | awk '{print $1, $2, $3}')
+
     if [ -z "$UNALLOCATED" ]; then
         log "Không tìm thấy không gian chưa phân vùng trên /dev/$DISK."
         continue
     fi
-    
+
     log "Tìm thấy không gian chưa phân vùng trên /dev/$DISK:"
-    echo "$UNALLOCATED"
-    
-    # Xử lý từng khoảng trống lớn hơn 100MB
-    while read -r START END SIZE UNIT REST; do
-        # Bỏ qua nếu kích thước quá nhỏ hoặc không phải GB/MB
-        if [[ "$UNIT" == "B" ]] || [[ "$SIZE" == "0.00GB" ]] || [[ "$SIZE" == "0.00MB" ]]; then
+    echo "$UNALLOCATED" | tee -a /var/log/auto-expand-root.log
+
+    # Xử lý từng vùng trống
+    while read -r START END SIZE; do
+        # Chỉ xử lý nếu kích thước >= 100MB
+        if [ -z "$SIZE" ] || [ "${SIZE%.*}" -lt 100 ]; then
+            log "Không gian từ ${START}MB đến ${END}MB ($SIZE MB) quá nhỏ, bỏ qua."
             continue
         fi
-        
-        # Chuyển đổi MB sang GB nếu cần
-        if [[ "$UNIT" == "MB" ]] && (( $(echo "$SIZE < 100" | bc -l) )); then
-            continue
-        fi
-        
-        log "Xử lý không gian trống từ $START đến $END (khoảng $SIZE $UNIT)..."
-        
-        # Xác định số phân vùng tiếp theo
-        LAST_PART=$(parted /dev/$DISK print 2>/dev/null | tail -n +8 | grep -v Free | wc -l)
+
+        log "Xử lý không gian trống từ ${START}MB đến ${END}MB ($SIZE MB)..."
+
+        # Tìm số phân vùng tiếp theo
+        LAST_PART=$(parted /dev/$DISK print 2>/dev/null | grep -E "^ [0-9]" | tail -n 1 | awk '{print $1}')
         NEXT_PART=$((LAST_PART + 1))
-        
-        log "Tạo phân vùng mới (số $NEXT_PART)..."
-        parted /dev/$DISK mkpart primary $START $END 2>/dev/null || {
-            warning "Không thể tạo phân vùng mới. Thử phương pháp khác..."
-            # Thử cách khác nếu parted không hoạt động
-            parted /dev/$DISK mkpart primary $START 100% 2>/dev/null || {
-                warning "Không thể tạo phân vùng mới. Bỏ qua..."
-                continue
-            }
-        }
-        
-        log "Đánh dấu phân vùng mới là LVM..."
-        if [[ "$PART_TABLE" == "gpt" ]]; then
-            # Đối với GPT, đặt cờ lvm
-            parted /dev/$DISK set $NEXT_PART lvm on 2>/dev/null || warning "Không thể đặt cờ LVM."
+
+        # Kiểm tra khóa ổ đĩa
+        if lsof /dev/$DISK >/dev/null 2>&1; then
+            warning "Ổ đĩa /dev/$DISK đang bị khóa. Thử đồng bộ lại..."
+            sync
+            sleep 2
         fi
-        
-        # Đợi hệ thống cập nhật thông tin phân vùng
-        log "Cập nhật thông tin phân vùng..."
-        sleep 2
+
+        # Tạo phân vùng mới
+        log "Tạo phân vùng mới (số $NEXT_PART)..."
+        if ! parted /dev/$DISK mkpart primary "${START}MB" "${END}MB" 2>/dev/null; then
+            warning "Không thể tạo phân vùng mới từ ${START}MB đến ${END}MB. Bỏ qua."
+            continue
+        fi
+
+        # Đặt cờ LVM nếu là GPT
+        if [ "$PART_TABLE" = "gpt" ]; then
+            log "Đặt cờ LVM cho phân vùng $NEXT_PART..."
+            if ! parted /dev/$DISK set $NEXT_PART lvm on 2>/dev/null; then
+                warning "Không thể đặt cờ LVM cho phân vùng $NEXT_PART."
+            fi
+        fi
+
+        # Đồng bộ bảng phân vùng
+        log "Cập nhật bảng phân vùng..."
+        sync
         partprobe /dev/$DISK 2>/dev/null
-        sleep 1
-        
+        sleep 2
+
         # Xác định tên thiết bị mới
         if [[ "$DISK" == nvme* ]]; then
             NEW_PART="/dev/${DISK}p${NEXT_PART}"
-        elif [[ "$PART_TABLE" == "gpt" && "$DISK" =~ ^vd ]]; then
-            # Một số VPS với GPT và vdisk có thể sử dụng pX
-            if [ -e "/dev/${DISK}p${NEXT_PART}" ]; then
-                NEW_PART="/dev/${DISK}p${NEXT_PART}"
-            else
-                NEW_PART="/dev/${DISK}${NEXT_PART}"
-            fi
         else
             NEW_PART="/dev/${DISK}${NEXT_PART}"
         fi
-        
-        # Kiểm tra xem thiết bị mới có tồn tại không
+
+        # Kiểm tra thiết bị mới
         if [ ! -e "$NEW_PART" ]; then
-            warning "Không tìm thấy thiết bị $NEW_PART. Thử các tên thiết bị khả năng khác..."
-            for POSSIBLE_PART in "/dev/${DISK}${NEXT_PART}" "/dev/${DISK}p${NEXT_PART}"; do
-                if [ -e "$POSSIBLE_PART" ]; then
-                    NEW_PART="$POSSIBLE_PART"
-                    log "Tìm thấy thiết bị: $NEW_PART"
-                    break
-                fi
+            warning "Không tìm thấy thiết bị $NEW_PART. Thử quét lại..."
+            for host in /sys/class/scsi_host/host*; do
+                [ -e "$host/scan" ] && echo "- - -" > "$host/scan"
             done
+            sleep 2
         fi
-        
+
         if [ ! -e "$NEW_PART" ]; then
-            warning "Không tìm thấy thiết bị phân vùng mới sau khi tạo. Bỏ qua..."
+            warning "Vẫn không tìm thấy $NEW_PART. Bỏ qua."
             continue
         fi
-        
+
+        # Khởi tạo và thêm vào LVM
         log "Khởi tạo physical volume $NEW_PART..."
-        pvcreate $NEW_PART 2>/dev/null || warning "Lỗi khi khởi tạo physical volume."
-        
-        log "Thêm vào volume group $VG_NAME..."
-        vgextend $VG_NAME $NEW_PART 2>/dev/null || warning "Lỗi khi mở rộng volume group."
-        
-        UNALLOCATED_SPACE_FOUND=1
+        if ! pvcreate "$NEW_PART" 2>/dev/null; then
+            warning "Lỗi khi khởi tạo physical volume $NEW_PART."
+            continue
+        fi
+
+        log "Thêm $NEW_PART vào volume group $VG_NAME..."
+        if ! vgextend "$VG_NAME" "$NEW_PART" 2>/dev/null; then
+            warning "Lỗi khi mở rộng volume group $VG_NAME."
+            continue
+        fi
+
+        SPACE_ADDED=1
     done <<< "$UNALLOCATED"
 done
 
 # Kiểm tra dung lượng trống trong VG
-FREE_PE=$(vgdisplay $VG_NAME | awk '/Free  PE/{print $5}')
-FREE_SIZE=$(vgdisplay $VG_NAME | grep "Free  PE" | awk '{print $5,$6,$7}')
+FREE_PE=$(vgdisplay "$VG_NAME" 2>/dev/null | awk '/Free  PE/{print $5}')
+FREE_SIZE=$(vgdisplay "$VG_NAME" 2>/dev/null | grep "Free  PE" | awk '{print $5,$6,$7}')
 
 if [ "$FREE_PE" -eq 0 ]; then
-    if [ $UNALLOCATED_SPACE_FOUND -eq 1 ]; then
-        error "Đã thêm phân vùng mới nhưng không có không gian trống trong Volume Group. Kiểm tra lại với 'vgdisplay'."
+    if [ $SPACE_ADDED -eq 1 ]; then
+        error "Đã thêm phân vùng nhưng không có dung lượng trống trong VG $VG_NAME. Kiểm tra với 'vgdisplay'."
     else
-        log "Không còn dung lượng trống trong Volume Group $VG_NAME và không tìm thấy không gian chưa phân vùng."
+        log "Không tìm thấy dung lượng trống trong VG $VG_NAME hoặc trên ổ đĩa."
         log "Thông tin phân vùng hiện tại:"
-        df -Th /
+        df -Th / | tee -a /var/log/auto-expand-root.log
         exit 0
     fi
 fi
 
-log "Dung lượng trống khả dụng trong VG: $FREE_SIZE"
+log "Dung lượng trống trong VG: $FREE_SIZE"
 
 # Mở rộng Logical Volume
 log "Mở rộng Logical Volume $LV_PATH..."
-lvextend -l +100%FREE $LV_PATH || error "Lỗi khi mở rộng Logical Volume."
+if ! lvextend -l +100%FREE "$LV_PATH" 2>/dev/null; then
+    error "Lỗi khi mở rộng Logical Volume $LV_PATH."
+fi
 
 # Mở rộng filesystem
 case "$FSTYPE" in
     ext4)
-        log "Mở rộng EXT4 với resize2fs..."
-        resize2fs $ROOT_DEVICE || error "Lỗi khi mở rộng EXT4."
+        log "Mở rộng EXT4 filesystem..."
+        if ! resize2fs "$ROOT_DEVICE" 2>/dev/null; then
+            error "Lỗi khi mở rộng EXT4 filesystem."
+        fi
         ;;
     xfs)
-        log "Mở rộng XFS với xfs_growfs..."
-        xfs_growfs / || error "Lỗi khi mở rộng XFS."
+        log "Mở rộng XFS filesystem..."
+        if ! xfs_growfs / 2>/dev/null; then
+            error "Lỗi khi mở rộng XFS filesystem."
+        fi
         ;;
     *)
-        error "Filesystem $FSTYPE chưa được hỗ trợ."
+        error "Filesystem $FSTYPE không được hỗ trợ."
         ;;
 esac
 
-log "Đã hoàn tất mở rộng phân vùng. Thông tin phân vùng hiện tại:"
-df -Th /
+log "Hoàn tất mở rộng phân vùng. Thông tin hiện tại:"
+df -Th / | tee -a /var/log/auto-expand-root.log
 
 log "Script hoàn tất thành công!"
