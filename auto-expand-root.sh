@@ -17,6 +17,7 @@ warning() {
 # Tạo log file
 mkdir -p /var/log
 touch /var/log/auto-expand-root.log
+LOG_FILE="/var/log/auto-expand-root.log"
 
 # Kiểm tra quyền root
 if [ "$(id -u)" -ne 0 ]; then
@@ -24,6 +25,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 log "Bắt đầu kiểm tra và mở rộng phân vùng root..."
+log "Log được ghi tại: $LOG_FILE"
 
 # Lấy thông tin thiết bị gắn với /
 ROOT_DEVICE=$(findmnt -n -o SOURCE /) || error "Không tìm thấy thiết bị root."
@@ -57,7 +59,7 @@ for PV in $PV_LIST; do
     fi
 done
 
-# Nếu không tìm thấy, thử liệt kê các ổ đĩa phổ biến
+# Nếu không tìm thấy, thử các ổ đĩa phổ biến
 if [ -z "$DISK_LIST" ]; then
     DISK_LIST=$(lsblk -pno name | grep -E '/dev/sd|/dev/vd|/dev/xvd|/dev/nvme' | sed 's|/dev/||' | awk -F'[0-9]' '{print $1}' | sort -u)
 fi
@@ -68,7 +70,7 @@ fi
 
 log "Danh sách ổ đĩa tìm thấy: $DISK_LIST"
 
-# Biến kiểm tra xem có không gian được thêm không
+# Biến theo dõi dung lượng và trạng thái
 SPACE_ADDED=0
 TOTAL_FREE_SPACE=0
 TOTAL_UNUSED_PARTITION_SPACE=0
@@ -96,39 +98,32 @@ for DISK in $DISK_LIST; do
 
     if [ -n "$UNALLOCATED" ]; then
         log "Tìm thấy không gian chưa phân vùng trên /dev/$DISK:"
-        echo "$UNALLOCATED" | tee -a /var/log/auto-expand-root.log
+        echo "$UNALLOCATED" | tee -a "$LOG_FILE"
 
         while read -r START END SIZE; do
-            # Chỉ xử lý nếu kích thước >= 100MB
             if [ -z "$SIZE" ] || [ "${SIZE%.*}" -lt 100 ]; then
                 log "Không gian từ ${START}MB đến ${END}MB ($SIZE MB) quá nhỏ, bỏ qua."
                 continue
             fi
 
-            # Cộng vào tổng không gian trống
             TOTAL_FREE_SPACE=$((TOTAL_FREE_SPACE + SIZE))
-
             log "Xử lý không gian trống từ ${START}MB đến ${END}MB ($SIZE MB)..."
 
-            # Tìm số phân vùng tiếp theo
             LAST_PART=$(parted /dev/$DISK print 2>/dev/null | grep -E "^ [0-9]" | tail -n 1 | awk '{print $1}')
             NEXT_PART=$((LAST_PART + 1))
 
-            # Kiểm tra khóa ổ đĩa
             if lsof /dev/$DISK >/dev/null 2>&1; then
-                warning "Ổ đĩa /dev/$DISK đang bị khóa. Thử đồng bộ lại..."
+                warning "Ổ đĩa /dev/$DISK đang bị khóa. Thử đồng bộ..."
                 sync
                 sleep 2
             fi
 
-            # Tạo phân vùng mới
             log "Tạo phân vùng mới (số $NEXT_PART)..."
             if ! parted /dev/$DISK mkpart primary "${START}MB" "${END}MB" 2>/dev/null; then
                 warning "Không thể tạo phân vùng mới từ ${START}MB đến ${END}MB. Bỏ qua."
                 continue
             fi
 
-            # Đặt cờ LVM nếu là GPT
             if [ "$PART_TABLE" = "gpt" ]; then
                 log "Đặt cờ LVM cho phân vùng $NEXT_PART..."
                 if ! parted /dev/$DISK set $NEXT_PART lvm on 2>/dev/null; then
@@ -136,22 +131,19 @@ for DISK in $DISK_LIST; do
                 fi
             fi
 
-            # Đồng bộ bảng phân vùng
             log "Cập nhật bảng phân vùng..."
             sync
             partprobe /dev/$DISK 2>/dev/null
             sleep 2
 
-            # Xác định tên thiết bị mới
             if [[ "$DISK" == nvme* ]]; then
                 NEW_PART="/dev/${DISK}p${NEXT_PART}"
             else
                 NEW_PART="/dev/${DISK}${NEXT_PART}"
             fi
 
-            # Kiểm tra thiết bị mới
             if [ ! -e "$NEW_PART" ]; then
-                warning "Không tìm thấy thiết bị $NEW_PART. Thử quét lại..."
+                warning "Không tìm thấy $NEW_PART. Thử quét lại..."
                 for host in /sys/class/scsi_host/host*; do
                     [ -e "$host/scan" ] && echo "- - -" > "$host/scan"
                 done
@@ -163,7 +155,6 @@ for DISK in $DISK_LIST; do
                 continue
             fi
 
-            # Khởi tạo và thêm vào LVM
             log "Khởi tạo physical volume $NEW_PART..."
             if ! pvcreate "$NEW_PART" 2>/dev/null; then
                 warning "Lỗi khi khởi tạo physical volume $NEW_PART."
@@ -182,7 +173,7 @@ for DISK in $DISK_LIST; do
         log "Không tìm thấy không gian chưa phân vùng trên /dev/$DISK."
     fi
 
-    # 2. Kiểm tra phân vùng hiện có
+    # 2. Kiểm tra phân vùng hiện có chưa sử dụng
     log "Kiểm tra phân vùng hiện có trên /dev/$DISK..."
     PARTITIONS=$(parted /dev/$DISK print 2>/dev/null | grep -E "^ [0-9]" | awk '{print $1}')
     UNUSED_PARTITIONS=""
@@ -194,26 +185,22 @@ for DISK in $DISK_LIST; do
             PART_DEVICE="/dev/${DISK}${PART_NUM}"
         fi
 
-        # Kiểm tra xem phân vùng có trong LVM không
         if pvdisplay "$PART_DEVICE" >/dev/null 2>&1; then
-            # Phân vùng đang được sử dụng trong LVM
             PART_SIZE=$(parted /dev/$DISK unit MB print 2>/dev/null | grep "^ $PART_NUM" | awk '{print $4}' | sed 's/MB//')
             USED_PARTITION_COUNT=$((USED_PARTITION_COUNT + 1))
             TOTAL_USED_PARTITION_SPACE=$((TOTAL_USED_PARTITION_SPACE + PART_SIZE))
             log "Phân vùng $PART_DEVICE ($PART_SIZE MB) đang được sử dụng trong LVM."
         else
-            # Phân vùng chưa được sử dụng
             PART_SIZE=$(parted /dev/$DISK unit MB print 2>/dev/null | grep "^ $PART_NUM" | awk '{print $4}' | sed 's/MB//')
             if [ -n "$PART_SIZE" ] && [ "${PART_SIZE%.*}" -ge 100 ]; then
                 UNUSED_PARTITIONS="$UNUSED_PARTITIONS $PART_DEVICE:$PART_SIZE"
-                TOTAL_UNUSED_PARTITION_SPACE=$((TOTAL_UNUSED_PARTITION_SPACE + PART_SIZE))
+                TOTAL_UNUSED_PARTITION_SPACE=$((TOTAL_UNUSED_PARTITING_SPACE + PART_SIZE))
             else
                 log "Phân vùng $PART_DEVICE ($PART_SIZE MB) quá nhỏ, bỏ qua."
             fi
         fi
     done
 
-    # Báo cáo phân vùng chưa sử dụng
     if [ -n "$UNUSED_PARTITIONS" ]; then
         log "Các phân vùng chưa được sử dụng trong LVM trên /dev/$DISK:"
         for PART in $UNUSED_PARTITIONS; do
@@ -225,14 +212,12 @@ for DISK in $DISK_LIST; do
         log "Không tìm thấy phân vùng chưa sử dụng đủ lớn trên /dev/$DISK."
     fi
 
-    # Xử lý các phân vùng chưa sử dụng
     for PART in $UNUSED_PARTITIONS; do
         PART_DEVICE=${PART%%:*}
         PART_SIZE=${PART##*:}
 
         log "Xử lý phân vùng chưa sử dụng $PART_DEVICE ($PART_SIZE MB)..."
 
-        # Đặt cờ LVM nếu là GPT
         if [ "$PART_TABLE" = "gpt" ]; then
             log "Đặt cờ LVM cho phân vùng $PART_DEVICE..."
             PART_NUM=$(echo "$PART_DEVICE" | grep -o '[0-9]\+$')
@@ -241,7 +226,6 @@ for DISK in $DISK_LIST; do
             fi
         fi
 
-        # Khởi tạo và thêm vào LVM
         log "Khởi tạo physical volume $PART_DEVICE..."
         if ! pvcreate "$PART_DEVICE" 2>/dev/null; then
             warning "Lỗi khi khởi tạo physical volume $PART_DEVICE."
@@ -258,7 +242,7 @@ for DISK in $DISK_LIST; do
     done
 done
 
-# Báo cáo tổng quan
+# Báo cáo tổng quan dung lượng
 log "Tổng quan dung lượng:"
 log "- Số phân vùng đang sử dụng trong LVM: $USED_PARTITION_COUNT"
 log "- Tổng dung lượng phân vùng đang sử dụng: $TOTAL_USED_PARTITION_SPACE MB"
@@ -277,7 +261,8 @@ if [ -z "$FREE_PE" ] || [ "$FREE_PE" -eq 0 ]; then
     else
         log "Không tìm thấy dung lượng trống trong VG $VG_NAME hoặc trên ổ đĩa."
         log "Thông tin phân vùng hiện tại:"
-        df -Th / | tee -a /var/log/auto-expand-root.log
+        df -Th / | tee -a "$LOG_FILE"
+        log "Kiểm tra log chi tiết tại: $LOG_FILE"
         exit 0
     fi
 fi
@@ -310,6 +295,7 @@ case "$FSTYPE" in
 esac
 
 log "Hoàn tất mở rộng phân vùng. Thông tin hiện tại:"
-df -Th / | tee -a /var/log/auto-expand-root.log
+df -Th / | tee -a "$LOG_FILE"
+log "Kiểm tra log chi tiết tại: $LOG_FILE"
 
 log "Script hoàn tất thành công!"
