@@ -12,7 +12,7 @@ else
 fi
 
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.1"
+SCRIPT_VERSION="1.2"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
 
 check_package() {
@@ -71,9 +71,9 @@ remove_package nftables nftables.service
 remove_package csf csf.service
 remove_package fail2ban fail2ban.service
 
-echo "[+] Xóa toàn bộ rule iptables và ip6tables..."
-
+# Xóa rule iptables và ip6tables nếu công cụ tồn tại
 if command -v iptables >/dev/null 2>&1; then
+    echo "[+] Xóa toàn bộ rule iptables và ip6tables..."
     iptables -P INPUT ACCEPT
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
@@ -91,7 +91,9 @@ else
     echo "[-] iptables không được cài đặt."
 fi
 
+# Xóa ruleset nftables nếu công cụ tồn tại
 if command -v nft >/dev/null 2>&1; then
+    echo "[+] Xóa toàn bộ ruleset nftables..."
     nft flush ruleset
     nft list ruleset > /etc/nftables.conf 2>/dev/null
     echo "[+] Đã xóa sạch ruleset nftables"
