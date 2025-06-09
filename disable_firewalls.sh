@@ -20,7 +20,8 @@ check_package() {
             rpm -q "$pkg" >/dev/null 2>&1 && return 0 || return 1
             ;;
         ubuntu|debian)
-            dpkg -l "$pkg" >/dev/null 2>&1 && return 0 || return 1
+            # Chỉ coi gói ở trạng thái 'ii' (đã cài đặt) là tồn tại
+            dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "^install ok installed$" && return 0 || return 1
             ;;
         *)
             return 1
@@ -39,7 +40,7 @@ remove_package() {
             systemctl stop "$service_name"
             echo "[+] Đã dừng $service_name"
         fi
-        # Gỡ cài đặt gói
+        # Gỡ cài đặt gói và xóa file cấu hình
         case $OS in
             centos|almalinux|rhel)
                 yum remove -y "$pkg" >/dev/null 2>&1 || dnf remove -y "$pkg" >/dev/null 2>&1
@@ -47,6 +48,7 @@ remove_package() {
                 ;;
             ubuntu|debian)
                 apt-get remove --purge -y "$pkg" >/dev/null 2>&1
+                dpkg --purge "$pkg" >/dev/null 2>&1
                 apt-get autoremove -y >/dev/null 2>&1
                 echo "[+] Đã gỡ $pkg"
                 ;;
