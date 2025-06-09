@@ -28,36 +28,44 @@ check_package() {
     esac
 }
 
-disable_firewall() {
-    local service_name=$1
-    local pkg_name=$2
+remove_package() {
+    local pkg=$1
+    local service_name=$2
 
-    if check_package "$pkg_name"; then
-        echo "[+] Gói $pkg_name được cài đặt."
+    if check_package "$pkg"; then
+        echo "[+] Gói $pkg được cài đặt, tiến hành gỡ cài đặt..."
+        # Dừng dịch vụ trước khi gỡ nếu nó đang chạy
         if systemctl is-active --quiet "$service_name"; then
-            echo "[+] $service_name đang chạy, tiến hành tắt..."
             systemctl stop "$service_name"
-            systemctl disable "$service_name"
-            systemctl mask "$service_name"
-            echo "[+] Đã tắt và chặn $service_name"
-        else
-            echo "[-] $service_name không chạy nhưng gói được cài đặt."
+            echo "[+] Đã dừng $service_name"
         fi
+        # Gỡ cài đặt gói
+        case $OS in
+            centos|almalinux|rhel)
+                yum remove -y "$pkg" >/dev/null 2>&1 || dnf remove -y "$pkg" >/dev/null 2>&1
+                echo "[+] Đã gỡ $pkg"
+                ;;
+            ubuntu|debian)
+                apt-get remove --purge -y "$pkg" >/dev/null 2>&1
+                apt-get autoremove -y >/dev/null 2>&1
+                echo "[+] Đã gỡ $pkg"
+                ;;
+        esac
     else
-        echo "[-] Gói $pkg_name không được cài đặt."
+        echo "[-] Gói $pkg không được cài đặt."
     fi
 }
 
-echo "[+] Bắt đầu kiểm tra và vô hiệu hóa các firewall..."
+echo "[+] Bắt đầu gỡ cài đặt các firewall..."
 
-# Kiểm tra các firewall phổ biến
-disable_firewall firewalld.service firewalld
-disable_firewall ufw.service ufw
-disable_firewall iptables.service iptables
-disable_firewall netfilter-persistent.service netfilter-persistent
-disable_firewall nftables.service nftables
-disable_firewall csf.service csf
-disable_firewall fail2ban.service fail2ban
+# Gỡ cài đặt các firewall phổ biến
+remove_package firewalld firewalld.service
+remove_package ufw ufw.service
+remove_package iptables iptables.service
+remove_package netfilter-persistent netfilter-persistent.service
+remove_package nftables nftables.service
+remove_package csf csf.service
+remove_package fail2ban fail2ban.service
 
 echo "[+] Xóa toàn bộ rule iptables và ip6tables..."
 
@@ -92,4 +100,4 @@ if [ -f /etc/rc.local ] && grep -q -E "iptables|nft|ufw|firewalld|csf|fail2ban" 
     echo "[!] Cảnh báo: Tìm thấy script khởi động firewall trong /etc/rc.local. Vui lòng kiểm tra thủ công."
 fi
 
-echo "[+] Hoàn tất vô hiệu hóa firewall!"
+echo "[+] Hoàn tất gỡ cài đặt và vô hiệu hóa firewall!"
