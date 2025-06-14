@@ -10,7 +10,7 @@ CYAN='\e[1;36m'
 NC='\e[0m'
 
 # !!! THAY DOI URL NAY thanh link tai script cua ban !!!
-SCRIPT_URL="https://h2cloud.vn/downloads/n8n/n8n-host.sh" # VI DU: Link raw GitHub
+SCRIPT_URL="https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/downloads/n8n/n8n-host.sh" # VI DU: Link raw GitHub
 
 SCRIPT_NAME="n8n-host"
 # Khuyen nghi dung /usr/local/bin cho script tuy chinh
