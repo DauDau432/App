@@ -1,8 +1,7 @@
 #!/bin/bash
 clear
 echo ""
-echo "[+] Xác định hệ điều hành..."
-
+echo "[+] Công cụ gỡ cài đặt các firewall"
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
@@ -14,6 +13,7 @@ fi
 echo "[+] Hệ điều hành: $PRETTY_NAME"
 SCRIPT_VERSION="1.2"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
+echo""
 
 check_package() {
     local pkg=$1
@@ -60,8 +60,6 @@ remove_package() {
     fi
 }
 
-echo "[+] Bắt đầu gỡ cài đặt các firewall..."
-
 # Gỡ cài đặt các firewall phổ biến
 remove_package firewalld firewalld.service
 remove_package ufw ufw.service
@@ -101,9 +99,6 @@ else
     echo "[-] nftables không được cài đặt."
 fi
 
-echo "[+] Kiểm tra các script khởi động thủ công..."
 if [ -f /etc/rc.local ] && grep -q -E "iptables|nft|ufw|firewalld|csf|fail2ban" /etc/rc.local; then
     echo "[!] Cảnh báo: Tìm thấy script khởi động firewall trong /etc/rc.local. Vui lòng kiểm tra thủ công."
 fi
-
-echo "[+] Hoàn tất gỡ cài đặt và vô hiệu hóa firewall!"
