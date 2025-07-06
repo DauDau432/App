@@ -1,4 +1,11 @@
 #!/bin/bash
+
+# Kiểm tra quyền root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "[-] Lỗi: Script này cần được chạy với quyền root (sudo)."
+    exit 1
+fi
+
 clear
 echo ""
 echo "[+] Công cụ quản lý firewall"
@@ -11,31 +18,10 @@ else
 fi
 
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.5"
+SCRIPT_VERSION="1.5.2"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
 
-# Kiểm tra và hiển thị danh sách firewall đã cài đặt
-echo "[+] Các firewall hiện có:"
-FIREWALLS=("firewalld" "ufw" "iptables" "netfilter-persistent" "nftables" "csf" "fail2ban")
-FOUND_FIREWALL=false
-for pkg in "${FIREWALLS[@]}"; do
-    if check_package "$pkg"; then
-        echo "  - $pkg: Đã cài đặt"
-        FOUND_FIREWALL=true
-    fi
-done
-if ! $FOUND_FIREWALL; then
-    echo "  - Không tìm thấy firewall nào."
-fi
-# Kiểm tra phiên bản iptables nếu có
-if command -v iptables >/dev/null 2>&1; then
-    IPTABLES_VERSION=$(iptables --version | head -n1)
-    echo "  - Phiên bản iptables: $IPTABLES_VERSION"
-else
-    echo "  - iptables: Chưa cài đặt"
-fi
-echo ""
-
+# Định nghĩa các hàm
 check_package() {
     local pkg=$1
     case $OS in
@@ -267,6 +253,28 @@ remove_all_firewalls() {
         echo "[!] Cảnh báo: Tìm thấy script khởi động firewall trong /etc/rc.local. Vui lòng kiểm tra thủ công."
     fi
 }
+
+# Kiểm tra và hiển thị danh sách firewall đã cài đặt
+echo "[+] Các firewall hiện có:"
+FIREWALLS=("firewalld" "ufw" "iptables" "netfilter-persistent" "nftables" "csf" "fail2ban")
+FOUND_FIREWALL=false
+for pkg in "${FIREWALLS[@]}"; do
+    if check_package "$pkg"; then
+        echo "  - $pkg: Đã cài đặt"
+        FOUND_FIREWALL=true
+    fi
+done
+if ! $FOUND_FIREWALL; then
+    echo "  - Không tìm thấy firewall nào."
+fi
+# Kiểm tra phiên bản iptables nếu có
+if command -v iptables >/dev/null 2>&1; then
+    IPTABLES_VERSION=$(iptables --version | head -n1)
+    echo "  - Phiên bản iptables: $IPTABLES_VERSION"
+else
+    echo "  - iptables: Chưa cài đặt"
+fi
+echo ""
 
 while true; do
     echo "================================="
