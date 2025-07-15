@@ -18,8 +18,34 @@ else
 fi
 
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.5.2"
+SCRIPT_VERSION="1.6.0"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
+
+# Danh sách Cloudflare IP tĩnh
+CLOUDFLARE_IPS_V4="173.245.48.0/20
+103.21.244.0/22
+103.22.200.0/22
+103.31.4.0/22
+104.16.0.0/13
+104.24.0.0/14
+108.162.192.0/18
+131.0.72.0/22
+141.101.64.0/18
+162.158.0.0/15
+172.64.0.0/13
+188.114.96.0/20
+190.93.240.0/20
+197.234.240.0/22
+198.41.128.0/17
+199.27.128.0/21
+45.32.0.0/19"
+CLOUDFLARE_IPS_V6="2400:cb00::/32
+2606:4700::/32
+2803:f800::/32
+2405:b500::/32
+2405:8100::/32
+2a06:98c0::/29
+2c0f:f248::/32"
 
 # Định nghĩa các hàm
 check_package() {
@@ -98,39 +124,7 @@ configure_cloudflare_rules() {
     if ! check_iptables; then
         return 1
     fi
-    echo "[+] Tải danh sách IP Cloudflare (IPv4 và IPv6)..."
-    CLOUDFLARE_IPS_V4=$(curl -s --connect-timeout 5 https://www.cloudflare.com/ips-v4)
-    CLOUDFLARE_IPS_V6=$(curl -s --connect-timeout 5 https://www.cloudflare.com/ips-v6)
-    if [ -z "$CLOUDFLARE_IPS_V4" ] || [ -z "$CLOUDFLARE_IPS_V6" ]; then
-        echo "[-] Không thể tải danh sách IP Cloudflare! Sử dụng danh sách dự phòng..."
-        # Danh sách IP Cloudflare dự phòng (cập nhật đến tháng 10/2023, cần kiểm tra thủ công định kỳ)
-        CLOUDFLARE_IPS_V4="173.245.48.0/20
-104.16.0.0/13
-104.24.0.0/14
-172.64.0.0/13
-131.0.72.0/22
-141.101.64.0/18
-108.162.192.0/18
-190.93.240.0/20
-188.114.96.0/20
-197.234.240.0/22
-198.41.128.0/17
-162.158.0.0/15
-199.27.128.0/21
-103.21.244.0/22
-103.22.200.0/22
-103.31.4.0/22
-45.32.0.0/19"
-        CLOUDFLARE_IPS_V6="2400:cb00::/32
-2606:4700::/32
-2803:f800::/32
-2405:b500::/32
-2405:8100::/32
-2a06:98c0::/29
-2c0f:f248::/32"
-    else
-        echo "[+] Tải danh sách IP Cloudflare thành công."
-    fi
+    echo "[+] Sử dụng danh sách IP Cloudflare tĩnh (IPv4 và IPv6)..."
     echo "[+] Cấu hình rule iptables cho Cloudflare (IPv4)..."
     iptables -F
     for ip in $CLOUDFLARE_IPS_V4; do
@@ -150,6 +144,25 @@ configure_cloudflare_rules() {
     ip6tables -A INPUT -p tcp --dport 443 -j DROP
     ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
     echo "[+] Đã cấu hình rule cho Cloudflare (IPv4 và IPv6)."
+}
+
+block_cloudflare_ips() {
+    if ! check_iptables; then
+        return 1
+    fi
+    echo "[+] Chặn IP Cloudflare bằng iptables (IPv4)..."
+    iptables -F
+    for ip in $CLOUDFLARE_IPS_V4; do
+        iptables -A INPUT -s "$ip" -j DROP
+    done
+    iptables-save > /etc/iptables/rules.v4 2>/dev/null
+    echo "[+] Chặn IP Cloudflare bằng ip6tables (IPv6)..."
+    ip6tables -F
+    for ip in $CLOUDFLARE_IPS_V6; do
+        ip6tables -A INPUT -s "$ip" -j DROP
+    done
+    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+    echo "[+] Đã chặn toàn bộ IP Cloudflare (IPv4 & IPv6)."
 }
 
 add_custom_ip_subnet() {
@@ -267,7 +280,6 @@ done
 if ! $FOUND_FIREWALL; then
     echo "  - Không tìm thấy firewall nào."
 fi
-# Kiểm tra phiên bản iptables nếu có
 if command -v iptables >/dev/null 2>&1; then
     IPTABLES_VERSION=$(iptables --version | head -n1)
     echo "  - Phiên bản iptables: $IPTABLES_VERSION"
@@ -285,9 +297,10 @@ while true; do
     echo "3. Gỡ rule chặn cổng 80/443"
     echo "4. Cài đặt iptables"
     echo "5. Gỡ cài đặt tất cả firewall"
+    echo "6. Chặn toàn bộ IP Cloudflare (IPv4 & IPv6)"
     echo "0. Thoát"
     echo "================================="
-    echo -n "Nhập lựa chọn của bạn [0-5]: "
+    echo -n "Nhập lựa chọn của bạn [0-6]: "
     read choice
     case $choice in
         1)
@@ -308,6 +321,10 @@ while true; do
             ;;
         5)
             remove_all_firewalls
+            echo ""
+            ;;
+        6)
+            block_cloudflare_ips
             echo ""
             ;;
         0)
