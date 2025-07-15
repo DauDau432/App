@@ -18,7 +18,7 @@ else
 fi
 
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.6.0"
+SCRIPT_VERSION="1.6.1"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
 
 # Danh sách Cloudflare IP tĩnh
@@ -138,7 +138,9 @@ configure_cloudflare_rules() {
     done
     iptables -A INPUT -p tcp --dport 80 -j DROP
     iptables -A INPUT -p tcp --dport 443 -j DROP
-    iptables-save > /etc/iptables/rules.v4 2>/dev/null
+    # Đảm bảo thư mục và tệp tồn tại
+    mkdir -p /etc/iptables
+    iptables-save > /etc/iptables/rules.v4
     echo "[+] Cấu hình rule ip6tables cho Cloudflare (IPv6)..."
     ip6tables -F
     for ip in $CLOUDFLARE_IPS_V6; do
@@ -147,7 +149,7 @@ configure_cloudflare_rules() {
     done
     ip6tables -A INPUT -p tcp --dport 80 -j DROP
     ip6tables -A INPUT -p tcp --dport 443 -j DROP
-    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+    ip6tables-save > /etc/iptables/rules.v6
     echo "[+] Đã cấu hình rule cho Cloudflare (IPv4 và IPv6)."
 }
 
@@ -160,13 +162,15 @@ block_cloudflare_ips() {
     for ip in $CLOUDFLARE_IPS_V4; do
         iptables -A INPUT -s "$ip" -j DROP
     done
-    iptables-save > /etc/iptables/rules.v4 2>/dev/null
+    # Đảm bảo thư mục và tệp tồn tại
+    mkdir -p /etc/iptables
+    iptables-save > /etc/iptables/rules.v4
     echo "[+] Chặn IP Cloudflare bằng ip6tables (IPv6)..."
     ip6tables -F
     for ip in $CLOUDFLARE_IPS_V6; do
         ip6tables -A INPUT -s "$ip" -j DROP
     done
-    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+    ip6tables-save > /etc/iptables/rules.v6
     echo "[+] Đã chặn toàn bộ IP Cloudflare (IPv4 & IPv6)."
 }
 
@@ -196,8 +200,10 @@ add_custom_ip_subnet() {
     iptables -A INPUT -p tcp --dport 443 -j DROP
     ip6tables -A INPUT -p tcp --dport 80 -j DROP
     ip6tables -A INPUT -p tcp --dport 443 -j DROP
-    iptables-save > /etc/iptables/rules.v4 2>/dev/null
-    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+    # Đảm bảo thư mục và tệp tồn tại
+    mkdir -p /etc/iptables
+    iptables-save > /etc/iptables/rules.v4
+    ip6tables-save > /etc/iptables/rules.v6
     echo "[+] Đã thêm $CUSTOM_IP vào danh sách được phép."
 }
 
@@ -214,8 +220,10 @@ remove_port_restrictions() {
     ip6tables -P INPUT ACCEPT
     ip6tables -P FORWARD ACCEPT
     ip6tables -P OUTPUT ACCEPT
-    iptables-save > /etc/iptables/rules.v4 2>/dev/null
-    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+    # Đảm bảo thư mục và tệp tồn tại
+    mkdir -p /etc/iptables
+    iptables-save > /etc/iptables/rules.v4
+    ip6tables-save > /etc/iptables/rules.v6
     echo "[+] Đã gỡ rule chặn cổng 80 và 443."
 }
 
@@ -253,8 +261,10 @@ remove_all_firewalls() {
         ip6tables -P OUTPUT ACCEPT
         ip6tables -F
         ip6tables -X
-        iptables-save > /etc/iptables/rules.v4 2>/dev/null
-        ip6tables-save > /etc/iptables/rules.v6 2>/dev/null
+        # Đảm bảo thư mục và tệp tồn tại
+        mkdir -p /etc/iptables
+        iptables-save > /etc/iptables/rules.v4
+        ip6tables-save > /etc/iptables/rules.v6
         echo "[+] Đã xóa sạch rule iptables và ip6tables"
     else
         echo "[-] iptables không được cài đặt."
