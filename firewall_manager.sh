@@ -15,7 +15,7 @@ else
     exit 1
 fi
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.6.2"
+SCRIPT_VERSION="1.6.3"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
 # Danh sách Cloudflare IP tĩnh
 CLOUDFLARE_IPS_V4="173.245.48.0/20
@@ -51,7 +51,7 @@ CLOUDFLARE_IPS_V6="2400:cb00::/32
 check_package() {
     local pkg=$1
     case $OS in
-        centos|almalinux|rhel)
+        centos|almalinux|rhel|cloudlinux)
             rpm -q "$pkg" >/dev/null 2>&1 && return 0 || return 1
             ;;
         ubuntu|debian)
@@ -62,11 +62,20 @@ check_package() {
             ;;
     esac
 }
+check_iptables() {
+    if command -v iptables >/dev/null 2>&1; then
+        IPTABLES_VERSION=$(iptables --version | head -n1)
+        return 0
+    else
+        echo "[-] iptables chưa được cài đặt. Vui lòng cài đặt iptables trước khi sử dụng chức năng này."
+        return 1
+    fi
+}
 install_package() {
     local pkg=$1
     echo "[+] Cài đặt $pkg..."
     case $OS in
-        centos|almalinux|rhel)
+        centos|almalinux|rhel|cloudlinux)
             yum install -y "$pkg" >/dev/null 2>&1 || dnf install -y "$pkg" >/dev/null 2>&1
             ;;
         ubuntu|debian)
@@ -91,7 +100,7 @@ remove_package() {
             echo "[+] Đã dừng $service_name"
         fi
         case $OS in
-            centos|almalinux|rhel)
+            centos|almalinux|rhel|cloudlinux)
                 yum remove -y "$pkg" >/dev/null 2>&1 || dnf remove -y "$pkg" >/dev/null 2>&1
                 echo "[+] Đã gỡ $pkg"
                 ;;
@@ -104,16 +113,6 @@ remove_package() {
         esac
     else
         echo "[-] Gói $pkg không được cài đặt."
-    fi
-}
-check_iptables() {
-    if command -v iptables >/dev/null 2>&1; then
-        IPTABLES_VERSION=$(iptables --version | head -n1)
-        echo "[+] iptables đã được cài đặt (Phiên bản: $IPTABLES_VERSION)."
-        return 0
-    else
-        echo "[-] iptables chưa được cài đặt. Vui lòng cài đặt iptables trước khi sử dụng chức năng này."
-        return 1
     fi
 }
 configure_cloudflare_rules() {
@@ -165,55 +164,63 @@ add_custom_ip_subnet() {
     if ! check_iptables; then
         return 1
     fi
-    echo "[+] Nhập địa chỉ IP hoặc subnet (ví dụ: 192.168.1.1 hoặc 192.168.1.0/24):"
-    read -r CUSTOM_IP
-    if [[ ! "$CUSTOM_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$ ]] && [[ ! "$CUSTOM_IP" =~ ^([0-9a-fA-F:]+(/[0-9]{1,3})?)$ ]]; then
-        echo "[-] Địa chỉ IP hoặc subnet không hợp lệ!"
-        return 1
-    fi
-    echo "[+] Chọn kiểu rule:"
-    echo "  1. Thêm rule INPUT/OUTPUT cho IP/subnet"
-    echo "  2. Thêm rule cho cổng 80/443 (như cũ)"
-    read -r rule_choice
-    case $rule_choice in
-        1)
-            echo "[+] Thêm rule INPUT/OUTPUT cho $CUSTOM_IP..."
-            if [[ "$CUSTOM_IP" =~ : ]]; then
-                ip6tables -I INPUT -s "$CUSTOM_IP" -j ACCEPT
-                ip6tables -I OUTPUT -d "$CUSTOM_IP" -j ACCEPT
-            else
-                iptables -I INPUT -s "$CUSTOM_IP" -j ACCEPT
-                iptables -I OUTPUT -d "$CUSTOM_IP" -j ACCEPT
-            fi
-            echo "[+] Đã thêm rule INPUT/OUTPUT cho $CUSTOM_IP."
-            ;;
-        2)
-            echo "[+] Thêm rule iptables cho $CUSTOM_IP (cổng 80/443)..."
-            iptables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
-            iptables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
-            ip6tables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
-            ip6tables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
-            if [[ "$CUSTOM_IP" =~ : ]]; then
-                ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
-                ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
-            else
-                iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
-                iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
-            fi
-            iptables -A INPUT -p tcp --dport 80 -j DROP
-            iptables -A INPUT -p tcp --dport 443 -j DROP
-            ip6tables -A INPUT -p tcp --dport 80 -j DROP
-            ip6tables -A INPUT -p tcp --dport 443 -j DROP
-            echo "[+] Đã thêm $CUSTOM_IP vào danh sách được phép (cổng 80/443)."
-            ;;
-        *)
-            echo "[-] Lựa chọn không hợp lệ!"
-            return 1
-            ;;
-    esac
-    mkdir -p /etc/iptables
-    iptables-save > /etc/iptables/rules.v4
-    ip6tables-save > /etc/iptables/rules.v6
+    while true; do
+        echo "[+] Nhập địa chỉ IP hoặc subnet (ví dụ: 192.168.1.1 hoặc 192.168.1.0/24):"
+        read -r CUSTOM_IP
+        if [[ ! "$CUSTOM_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$ ]] && [[ ! "$CUSTOM_IP" =~ ^([0-9a-fA-F:]+(/[0-9]{1,3})?)$ ]]; then
+            echo "[-] Địa chỉ IP hoặc subnet không hợp lệ!"
+            continue
+        fi
+        echo "[+] Chọn kiểu rule:"
+        echo "  0. Quay lại"
+        echo "  1. Thêm rule INPUT/OUTPUT cho IP/subnet"
+        echo "  2. Thêm rule cho cổng 80/443 (như cũ)"
+        read -r rule_choice
+        case $rule_choice in
+            0)
+                echo "[+] Quay lại menu chính."
+                return 0
+                ;;
+            1)
+                echo "[+] Thêm rule INPUT/OUTPUT cho $CUSTOM_IP..."
+                if [[ "$CUSTOM_IP" =~ : ]]; then
+                    ip6tables -I INPUT -s "$CUSTOM_IP" -j ACCEPT
+                    ip6tables -I OUTPUT -d "$CUSTOM_IP" -j ACCEPT
+                else
+                    iptables -I INPUT -s "$CUSTOM_IP" -j ACCEPT
+                    iptables -I OUTPUT -d "$CUSTOM_IP" -j ACCEPT
+                fi
+                echo "[+] Đã thêm rule INPUT/OUTPUT cho $CUSTOM_IP."
+                ;;
+            2)
+                echo "[+] Thêm rule iptables cho $CUSTOM_IP (cổng 80/443)..."
+                iptables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
+                iptables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
+                ip6tables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
+                ip6tables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
+                if [[ "$CUSTOM_IP" =~ : ]]; then
+                    ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
+                    ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
+                else
+                    iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
+                    iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
+                fi
+                iptables -A INPUT -p tcp --dport 80 -j DROP
+                iptables -A INPUT -p tcp --dport 443 -j DROP
+                ip6tables -A INPUT -p tcp --dport 80 -j DROP
+                ip6tables -A INPUT -p tcp --dport 443 -j DROP
+                echo "[+] Đã thêm $CUSTOM_IP vào danh sách được phép (cổng 80/443)."
+                ;;
+            *)
+                echo "[-] Lựa chọn không hợp lệ! Vui lòng chọn lại."
+                continue
+                ;;
+        esac
+        mkdir -p /etc/iptables
+        iptables-save > /etc/iptables/rules.v4
+        ip6tables-save > /etc/iptables/rules.v6
+        return 0
+    done
 }
 remove_port_restrictions() {
     if ! check_iptables; then
@@ -234,6 +241,7 @@ remove_port_restrictions() {
     echo "[+] Đã gỡ rule chặn cổng 80 và 443."
 }
 install_iptables() {
+    echo "[+] Cài đặt iptables..."
     install_package iptables
     if check_package iptables; then
         IPTABLES_VERSION=$(iptables --version | head -n1)
@@ -247,56 +255,76 @@ install_iptables() {
     fi
 }
 remove_all_firewalls() {
-    remove_package firewalld firewalld.service
-    remove_package ufw ufw.service
-    remove_package iptables iptables.service
-    remove_package netfilter-persistent netfilter-persistent.service
-    remove_package nftables nftables.service
-    remove_package csf csf.service
-    remove_package fail2ban fail2ban.service
-    if command -v iptables >/dev/null 2>&1; then
-        echo "[+] Xóa toàn bộ rule iptables và ip6tables..."
-        iptables -P INPUT ACCEPT
-        iptables -P FORWARD ACCEPT
-        iptables -P OUTPUT ACCEPT
-        iptables -F
-        iptables -X
-        ip6tables -P INPUT ACCEPT
-        ip6tables -P FORWARD ACCEPT
-        ip6tables -P OUTPUT ACCEPT
-        ip6tables -F
-        ip6tables -X
-        mkdir -p /etc/iptables
-        iptables-save > /etc/iptables/rules.v4
-        ip6tables-save > /etc/iptables/rules.v6
-        echo "[+] Đã xóa sạch rule iptables và ip6tables"
-    else
-        echo "[-] iptables không được cài đặt."
-    fi
-    if command -v nft >/dev/null 2>&1; then
-        echo "[+] Xóa toàn bộ ruleset nftables..."
-        nft flush ruleset
-        nft list ruleset > /etc/nftables.conf 2>/dev/null
-        echo "[+] Đã xóa sạch ruleset nftables"
-    else
-        echo "[-] nftables không được cài đặt."
-    fi
-    if [ -f /etc/rc.local ] && grep -q -E "iptables|nft|ufw|firewalld|csf|fail2ban" /etc/rc.local; then
-        echo "[!] Cảnh báo: Tìm thấy script khởi động firewall trong /etc/rc.local. Vui lòng kiểm tra thủ công."
-    fi
+    while true; do
+        echo "[+] Bạn có chắc chắn muốn gỡ cài đặt tất cả firewall?"
+        echo "  0. Quay lại"
+        echo "  1. Tiếp tục gỡ cài đặt"
+        read -r confirm_choice
+        case $confirm_choice in
+            0)
+                echo "[+] Quay lại menu chính."
+                return 0
+                ;;
+            1)
+                remove_package firewalld firewalld.service
+                remove_package ufw ufw.service
+                remove_package iptables iptables.service
+                remove_package netfilter-persistent netfilter-persistent.service
+                remove_package nftables nftables.service
+                remove_package csf csf.service
+                remove_package fail2ban fail2ban.service
+                if command -v iptables >/dev/null 2>&1; then
+                    echo "[+] Xóa toàn bộ rule iptables và ip6tables..."
+                    iptables -P INPUT ACCEPT
+                    iptables -P FORWARD ACCEPT
+                    iptables -P OUTPUT ACCEPT
+                    iptables -F
+                    iptables -X
+                    ip6tables -P INPUT ACCEPT
+                    ip6tables -P FORWARD ACCEPT
+                    ip6tables -P OUTPUT ACCEPT
+                    ip6tables -F
+                    ip6tables -X
+                    mkdir -p /etc/iptables
+                    iptables-save > /etc/iptables/rules.v4
+                    ip6tables-save > /etc/iptables/rules.v6
+                    echo "[+] Đã xóa sạch rule iptables và ip6tables"
+                else
+                    echo "[-] iptables không được cài đặt."
+                fi
+                if command -v nft >/dev/null 2>&1; then
+                    echo "[+] Xóa toàn bộ ruleset nftables..."
+                    nft flush ruleset
+                    nft list ruleset > /etc/nftables.conf 2>/dev/null
+                    echo "[+] Đã xóa sạch ruleset nftables"
+                else
+                    echo "[-] nftables không được cài đặt."
+                fi
+                if [ -f /etc/rc.local ] && grep -q -E "iptables|nft|ufw|firewalld|csf|fail2ban" /etc/rc.local; then
+                    echo "[!] Cảnh báo: Tìm thấy script khởi động firewall trong /etc/rc.local. Vui lòng kiểm tra thủ công."
+                fi
+                return 0
+                ;;
+            *)
+                echo "[-] Lựa chọn không hợp lệ! Vui lòng chọn lại."
+                continue
+                ;;
+        esac
+    done
 }
 # Kiểm tra và hiển thị danh sách firewall đã cài đặt
 echo "[+] Các firewall hiện có:"
 FIREWALLS=("firewalld" "ufw" "iptables" "netfilter-persistent" "nftables" "csf" "fail2ban")
 FOUND_FIREWALL=false
 for pkg in "${FIREWALLS[@]}"; do
-    if check_package "$pkg"; then
-        if [ "$pkg" = "iptables" ]; then
+    if [ "$pkg" = "iptables" ]; then
+        if command -v iptables >/dev/null 2>&1; then
             IPTABLES_VERSION=$(iptables --version | head -n1 2>/dev/null || echo "Không xác định")
             echo " - $pkg: $IPTABLES_VERSION"
-        else
-            echo " - $pkg: Đã cài đặt"
+            FOUND_FIREWALL=true
         fi
+    elif check_package "$pkg"; then
+        echo " - $pkg: Đã cài đặt"
         FOUND_FIREWALL=true
     fi
 done
