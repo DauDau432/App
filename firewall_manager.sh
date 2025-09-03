@@ -1,11 +1,9 @@
 #!/bin/bash
-
 # Kiểm tra quyền root
 if [ "$(id -u)" -ne 0 ]; then
     echo "[-] Lỗi: Script này cần được chạy với quyền root (sudo)."
     exit 1
 fi
-
 clear
 echo ""
 echo "[+] Công cụ quản lý firewall"
@@ -16,11 +14,9 @@ else
     echo "[-] Không xác định được hệ điều hành!"
     exit 1
 fi
-
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.6.1"
+SCRIPT_VERSION="1.6.2"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
-
 # Danh sách Cloudflare IP tĩnh
 CLOUDFLARE_IPS_V4="173.245.48.0/20
 185.122.0.0/22
@@ -51,7 +47,6 @@ CLOUDFLARE_IPS_V6="2400:cb00::/32
 2405:8100::/32
 2a06:98c0::/29
 2c0f:f248::/32"
-
 # Định nghĩa các hàm
 check_package() {
     local pkg=$1
@@ -60,14 +55,13 @@ check_package() {
             rpm -q "$pkg" >/dev/null 2>&1 && return 0 || return 1
             ;;
         ubuntu|debian)
-            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii  $pkg " && return 0 || return 1
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii $pkg " && return 0 || return 1
             ;;
         *)
             return 1
             ;;
     esac
 }
-
 install_package() {
     local pkg=$1
     echo "[+] Cài đặt $pkg..."
@@ -87,7 +81,6 @@ install_package() {
         return 1
     fi
 }
-
 remove_package() {
     local pkg=$1
     local service_name=$2
@@ -113,7 +106,6 @@ remove_package() {
         echo "[-] Gói $pkg không được cài đặt."
     fi
 }
-
 check_iptables() {
     if command -v iptables >/dev/null 2>&1; then
         IPTABLES_VERSION=$(iptables --version | head -n1)
@@ -124,7 +116,6 @@ check_iptables() {
         return 1
     fi
 }
-
 configure_cloudflare_rules() {
     if ! check_iptables; then
         return 1
@@ -138,7 +129,6 @@ configure_cloudflare_rules() {
     done
     iptables -A INPUT -p tcp --dport 80 -j DROP
     iptables -A INPUT -p tcp --dport 443 -j DROP
-    # Đảm bảo thư mục và tệp tồn tại
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4
     echo "[+] Cấu hình rule ip6tables cho Cloudflare (IPv6)..."
@@ -152,7 +142,6 @@ configure_cloudflare_rules() {
     ip6tables-save > /etc/iptables/rules.v6
     echo "[+] Đã cấu hình rule cho Cloudflare (IPv4 và IPv6)."
 }
-
 block_cloudflare_ips() {
     if ! check_iptables; then
         return 1
@@ -162,7 +151,6 @@ block_cloudflare_ips() {
     for ip in $CLOUDFLARE_IPS_V4; do
         iptables -A INPUT -s "$ip" -j DROP
     done
-    # Đảm bảo thư mục và tệp tồn tại
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4
     echo "[+] Chặn IP Cloudflare bằng ip6tables (IPv6)..."
@@ -173,7 +161,6 @@ block_cloudflare_ips() {
     ip6tables-save > /etc/iptables/rules.v6
     echo "[+] Đã chặn toàn bộ IP Cloudflare (IPv4 & IPv6)."
 }
-
 add_custom_ip_subnet() {
     if ! check_iptables; then
         return 1
@@ -184,29 +171,50 @@ add_custom_ip_subnet() {
         echo "[-] Địa chỉ IP hoặc subnet không hợp lệ!"
         return 1
     fi
-    echo "[+] Thêm rule iptables cho $CUSTOM_IP..."
-    iptables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
-    iptables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
-    ip6tables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
-    ip6tables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
-    if [[ "$CUSTOM_IP" =~ : ]]; then
-        ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
-        ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
-    else
-        iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
-        iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
-    fi
-    iptables -A INPUT -p tcp --dport 80 -j DROP
-    iptables -A INPUT -p tcp --dport 443 -j DROP
-    ip6tables -A INPUT -p tcp --dport 80 -j DROP
-    ip6tables -A INPUT -p tcp --dport 443 -j DROP
-    # Đảm bảo thư mục và tệp tồn tại
+    echo "[+] Chọn kiểu rule:"
+    echo "  1. Thêm rule INPUT/OUTPUT cho IP/subnet"
+    echo "  2. Thêm rule cho cổng 80/443 (như cũ)"
+    read -r rule_choice
+    case $rule_choice in
+        1)
+            echo "[+] Thêm rule INPUT/OUTPUT cho $CUSTOM_IP..."
+            if [[ "$CUSTOM_IP" =~ : ]]; then
+                ip6tables -I INPUT -s "$CUSTOM_IP" -j ACCEPT
+                ip6tables -I OUTPUT -d "$CUSTOM_IP" -j ACCEPT
+            else
+                iptables -I INPUT -s "$CUSTOM_IP" -j ACCEPT
+                iptables -I OUTPUT -d "$CUSTOM_IP" -j ACCEPT
+            fi
+            echo "[+] Đã thêm rule INPUT/OUTPUT cho $CUSTOM_IP."
+            ;;
+        2)
+            echo "[+] Thêm rule iptables cho $CUSTOM_IP (cổng 80/443)..."
+            iptables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
+            iptables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
+            ip6tables -D INPUT -p tcp --dport 80 -j DROP 2>/dev/null
+            ip6tables -D INPUT -p tcp --dport 443 -j DROP 2>/dev/null
+            if [[ "$CUSTOM_IP" =~ : ]]; then
+                ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
+                ip6tables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
+            else
+                iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
+                iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
+            fi
+            iptables -A INPUT -p tcp --dport 80 -j DROP
+            iptables -A INPUT -p tcp --dport 443 -j DROP
+            ip6tables -A INPUT -p tcp --dport 80 -j DROP
+            ip6tables -A INPUT -p tcp --dport 443 -j DROP
+            echo "[+] Đã thêm $CUSTOM_IP vào danh sách được phép (cổng 80/443)."
+            ;;
+        *)
+            echo "[-] Lựa chọn không hợp lệ!"
+            return 1
+            ;;
+    esac
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4
     ip6tables-save > /etc/iptables/rules.v6
-    echo "[+] Đã thêm $CUSTOM_IP vào danh sách được phép."
 }
-
 remove_port_restrictions() {
     if ! check_iptables; then
         return 1
@@ -220,13 +228,11 @@ remove_port_restrictions() {
     ip6tables -P INPUT ACCEPT
     ip6tables -P FORWARD ACCEPT
     ip6tables -P OUTPUT ACCEPT
-    # Đảm bảo thư mục và tệp tồn tại
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4
     ip6tables-save > /etc/iptables/rules.v6
     echo "[+] Đã gỡ rule chặn cổng 80 và 443."
 }
-
 install_iptables() {
     install_package iptables
     if check_package iptables; then
@@ -240,7 +246,6 @@ install_iptables() {
         fi
     fi
 }
-
 remove_all_firewalls() {
     remove_package firewalld firewalld.service
     remove_package ufw ufw.service
@@ -261,7 +266,6 @@ remove_all_firewalls() {
         ip6tables -P OUTPUT ACCEPT
         ip6tables -F
         ip6tables -X
-        # Đảm bảo thư mục và tệp tồn tại
         mkdir -p /etc/iptables
         iptables-save > /etc/iptables/rules.v4
         ip6tables-save > /etc/iptables/rules.v6
@@ -281,34 +285,31 @@ remove_all_firewalls() {
         echo "[!] Cảnh báo: Tìm thấy script khởi động firewall trong /etc/rc.local. Vui lòng kiểm tra thủ công."
     fi
 }
-
 # Kiểm tra và hiển thị danh sách firewall đã cài đặt
 echo "[+] Các firewall hiện có:"
 FIREWALLS=("firewalld" "ufw" "iptables" "netfilter-persistent" "nftables" "csf" "fail2ban")
 FOUND_FIREWALL=false
 for pkg in "${FIREWALLS[@]}"; do
     if check_package "$pkg"; then
-        echo "  - $pkg: Đã cài đặt"
+        if [ "$pkg" = "iptables" ]; then
+            IPTABLES_VERSION=$(iptables --version | head -n1 2>/dev/null || echo "Không xác định")
+            echo " - $pkg: $IPTABLES_VERSION"
+        else
+            echo " - $pkg: Đã cài đặt"
+        fi
         FOUND_FIREWALL=true
     fi
 done
 if ! $FOUND_FIREWALL; then
-    echo "  - Không tìm thấy firewall nào."
-fi
-if command -v iptables >/dev/null 2>&1; then
-    IPTABLES_VERSION=$(iptables --version | head -n1)
-    echo "  - Phiên bản iptables: $IPTABLES_VERSION"
-else
-    echo "  - iptables: Chưa cài đặt"
+    echo " - Không tìm thấy firewall nào."
 fi
 echo ""
-
 while true; do
     echo "================================="
-    echo "          MENU QUẢN LÝ FIREWALL  "
+    echo " MENU QUẢN LÝ FIREWALL "
     echo "================================="
     echo "1. Cho phép IP Cloudflare, chặn cổng 80/443 cho IP khác"
-    echo "2. Thêm IP/subnet vào danh sách được phép cho cổng 80/443"
+    echo "2. Thêm IP/subnet vào danh sách được phép"
     echo "3. Gỡ rule chặn cổng 80/443"
     echo "4. Cài đặt iptables"
     echo "5. Gỡ cài đặt tất cả firewall"
