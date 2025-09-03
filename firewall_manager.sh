@@ -174,7 +174,7 @@ add_custom_ip_subnet() {
         echo "[+] Chọn kiểu rule:"
         echo "  0. Quay lại"
         echo "  1. Thêm rule INPUT/OUTPUT cho IP/subnet"
-        echo "  2. Thêm rule cho cổng 80/443 (như cũ)"
+        echo "  2. Thêm rule cho cổng 80/443"
         read -r rule_choice
         case $rule_choice in
             0)
