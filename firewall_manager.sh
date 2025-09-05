@@ -15,7 +15,7 @@ else
     exit 1
 fi
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.6.3"
+SCRIPT_VERSION="1.6.4"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
 # Danh sách Cloudflare IP tĩnh
 CLOUDFLARE_IPS_V4="173.245.48.0/20
@@ -55,7 +55,7 @@ check_package() {
             rpm -q "$pkg" >/dev/null 2>&1 && return 0 || return 1
             ;;
         ubuntu|debian)
-            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii $pkg " && return 0 || return 1
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii  $pkg " && return 0 || return 1
             ;;
         *)
             return 1
