@@ -24,12 +24,13 @@ while true; do
 
     for f in "$LOG_DIR"/*.log; do
         base=$(basename "$f")
-        # bỏ qua file error
+        # bỏ qua file không cần
         [[ "$base" == *error* ]] && continue
         [[ "$base" == "access.log" ]] && continue
         [[ "$base" == "access_log" ]] && continue
         [[ "$base" == "error_log" ]] && continue
         [[ "$base" == "nginx_error.log" ]] && continue
+        [[ "$base" == "tcp-access.log" ]] && continue
 
         domain="${base%.log}"
         total=$(wc -l < "$f")
@@ -38,13 +39,11 @@ while true; do
         rps=$(( diff / INTERVAL ))
         last_count[$domain]=$total
 
-        results+=("$rps $domain")
+        results+=("${rps}|${domain}")
     done
 
     # sort theo RPS giảm dần
-    for line in $(printf "%s\n" "${results[@]}" | sort -nrk1); do
-        rps=$(echo "$line" | awk '{print $1}')
-        domain=$(echo "$line" | cut -d' ' -f2-)
+    printf "%s\n" "${results[@]}" | sort -t'|' -k1,1nr | while IFS="|" read -r rps domain; do
         printf "%-28s %10d\n" "$domain" "$rps"
     done
 
