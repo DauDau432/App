@@ -29,3 +29,8 @@ bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/
 ```
 bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/firewall_manager.sh)
 ```
+
+***thống kê kết nối trên vps***
+```
+bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/monitor.py)
+```
