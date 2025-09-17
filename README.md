@@ -32,5 +32,5 @@ bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/
 
 ***thống kê kết nối trên vps***
 ```
-bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/monitor.py)
+bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/monitor.sh)
 ```
