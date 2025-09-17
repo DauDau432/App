@@ -20,6 +20,8 @@ while true; do
     printf "%-28s %10s\n" "Domain" "RPS"
     echo "----------------------------------------------"
 
+    results=()
+
     for f in "$LOG_DIR"/*.log; do
         base=$(basename "$f")
         # bỏ qua file error
@@ -34,8 +36,16 @@ while true; do
         prev=${last_count[$domain]:-0}
         diff=$(( total - prev ))
         rps=$(( diff / INTERVAL ))
-        printf "%-28s %10d\n" "$domain" "$rps"
         last_count[$domain]=$total
+
+        results+=("$rps $domain")
+    done
+
+    # sort theo RPS giảm dần
+    for line in $(printf "%s\n" "${results[@]}" | sort -nrk1); do
+        rps=$(echo "$line" | awk '{print $1}')
+        domain=$(echo "$line" | cut -d' ' -f2-)
+        printf "%-28s %10d\n" "$domain" "$rps"
     done
 
     sleep $INTERVAL
