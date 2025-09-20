@@ -1,48 +1,58 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Universal HTTP access-log RPS monitor for Nginx / Apache / OpenLiteSpeed.
-- Multi-dir discovery
-- Multi-pattern matching
-- Rotation-safe (inode check)
-- Domain-aware counting (per-line for Apache other_vhosts_access.log)
-- Works on diverse VPS layouts
+Universal HTTP access-log RPS monitor (nginx / Apache / OpenLiteSpeed)
+
+Mặc định:
+  - In tổng quan kết nối hệ thống (netstat/ss)
+  - In bảng miền (RPS theo domain) -> có thể tắt bằng --no-domains
+Tùy chọn:
+  - --topip [THRESHOLD] : hiện Top IP (dưới bảng miền). Nếu không truyền số: mặc định ngưỡng 5.
+                          Luôn chỉ in tối đa 5 IP và chỉ những IP có kết nối > ngưỡng.
+  - --logfile           : in danh sách file log đang theo dõi (cuối màn hình), loại trùng đường dẫn.
+  - --dir PATH          : bổ sung thư mục log (có thể dùng nhiều lần)
+  - --interval SEC      : khoảng đo RPS (mặc định 2s)
+  - --rediscover SEC    : chu kỳ tái khám phá log (mặc định 10s)
+  - --start-at-begin    : đọc log từ đầu (mặc định từ cuối)
+  - --show-zero         : trong bảng miền, vẫn hiển thị domain RPS=0
+  - --no-domains        : tắt hẳn bảng miền
+
+Ghi chú:
+  - Netstat không có: KHÔNG tự cài. Sẽ cảnh báo và dùng 'ss' thay thế.
 """
 
-import os, sys, time, glob, re, subprocess
-from collections import defaultdict, deque
+import os, sys, time, glob, re, subprocess, shutil
+from collections import defaultdict
 
-# ======= Defaults (override via CLI) =======
+# ======= Defaults =======
 CANDIDATE_DIRS = [
-    "/www/wwwlogs",            # BaoTa/OLS thường dùng
-    "/var/log/nginx",          # Nginx chuẩn
-    "/var/log/apache2",        # Debian/Ubuntu Apache
-    "/var/log/httpd",          # CentOS/RHEL Apache
-    "/usr/local/lsws/logs",    # OpenLiteSpeed mặc định
+    "/www/wwwlogs",
+    "/var/log/nginx",
+    "/var/log/apache2",
+    "/var/log/httpd",
+    "/usr/local/lsws/logs",
 ]
-INTERVAL_SEC = 2.0            # cửa sổ tính RPS
-REDISCOVER_SEC = 10           # chu kỳ tái khám phá log
-START_AT_END = True           # True: chỉ đếm từ sau thời điểm chạy
-MAX_ROWS = 60                 # số dòng hiển thị
-POLL_SLEEP = 0.1              # sleep ngắn trong vòng đo
+INTERVAL_SEC = 2.0
+REDISCOVER_SEC = 10
+START_AT_END = True
+MAX_ROWS = 60
+POLL_SLEEP = 0.1
 
 # ======= Patterns =======
 INCLUDE_GLOBS = [
-    "*access.log*",            # nginx/apache
-    "*access_log*",            # nginx/OLS/bao-ta
-    "*_ols.access_log*",       # OLS chi tiết
-    "other_vhosts_access.log*",# Apache gộp vhost
+    "*access.log*",
+    "*access_log*",
+    "*_ols.access_log*",
+    "other_vhosts_access.log*",
 ]
-# Loại bỏ các log không phải access
 EXCLUDE_REGEXES = [
-    r"(?:^|/)(?:error|nginx_error)\.log",   # mọi error log
-    r"(?:^|/)modsec.*\.log",                # mod_security
-    r"(?:^|/)waf/",                         # thư mục waf
-    r"(?:^|/)tcp-(?:access|error)\.log",    # tcp logs
-    r"(?:^|/)access\.log$",                 # access.log quá generic (không domain), vẫn có thể bật lại
+    r"(?:^|/)(?:error|nginx_error)\.log",
+    r"(?:^|/)modsec.*\.log",
+    r"(?:^|/)waf/",
+    r"(?:^|/)tcp-(?:access|error)\.log",
+    r"(?:^|/)access\.log$",
 ]
 
-# Phát hiện domain từ tên file (Nginx/OLS thường mỗi vhost một file)
 FILENAME_DOMAIN_RE = re.compile(
     r"""
     ^(?P<name>.+?)
@@ -51,20 +61,25 @@ FILENAME_DOMAIN_RE = re.compile(
         (?:[-_]access_log(?:\.\d{4}_\d{2}_\d{2}(?:\.\d{2})?)?) |
         (?:\.access\.log(?:\.\d+)?)
     )$
-    """, re.VERBOSE
+    """,
+    re.VERBOSE
 )
-
-# Apache other_vhosts_access.log: domain nằm ở token đầu dòng (thường là %v)
 APACHE_VHOST_LINE_DOMAIN_RE = re.compile(r"^\s*([A-Za-z0-9\.\-]+\.[A-Za-z]{2,})(?:\s|:)")
 
 def parse_args():
     import argparse
     p = argparse.ArgumentParser(description="Universal RPS monitor (nginx/apache/OLS)")
-    p.add_argument("--dir", action="append", help="Thêm thư mục chứa log (có thể dùng nhiều lần)")
+    p.add_argument("--dir", action="append", help="Thêm thư mục log (có thể lặp)")
     p.add_argument("--interval", type=float, default=INTERVAL_SEC, help="Khoảng đo RPS (giây)")
     p.add_argument("--rediscover", type=float, default=REDISCOVER_SEC, help="Chu kỳ tái khám phá log (giây)")
-    p.add_argument("--show-zero", action="store_true", help="Hiện cả domain RPS=0")
-    p.add_argument("--start-at-begin", action="store_true", help="Đọc từ đầu file (mặc định đọc từ cuối)")
+    p.add_argument("--start-at-begin", action="store_true", help="Đọc từ đầu file thay vì từ cuối")
+    p.add_argument("--show-zero", action="store_true", help="Trong bảng miền, hiển thị cả domain RPS=0")
+    # Domains: bật mặc định; có cờ tắt
+    p.add_argument("--no-domains", action="store_true", help="Tắt bảng RPS theo miền (mặc định bật)")
+    # Top IP: tùy chọn với ngưỡng (threshold) tùy ý; nếu không truyền -> ngưỡng 5
+    p.add_argument("--topip", nargs="?", const="__DEFAULT__", help="Hiện Top IP; tùy chọn truyền ngưỡng (vd: --topip 20)")
+    # Log file list
+    p.add_argument("--logfile", action="store_true", help="In danh sách file log đang theo dõi (cuối màn hình)")
     return p.parse_args()
 
 def is_excluded(path: str) -> bool:
@@ -75,7 +90,7 @@ def is_excluded(path: str) -> bool:
     return False
 
 def discover_logs(dir_list):
-    found = {}   # key: logical domain/fileKey, val: absolute path
+    found = {}
     for d in dir_list:
         if not os.path.isdir(d):
             continue
@@ -84,15 +99,11 @@ def discover_logs(dir_list):
                 if not os.path.isfile(path) or is_excluded(path):
                     continue
                 base = os.path.basename(path)
-                # Ưu tiên phân loại:
-                # 1) Apache other_vhosts_access.log -> key đặc biệt theo file
                 if base.startswith("other_vhosts_access.log"):
                     key = "__apache_vhosts__:" + os.path.abspath(path)
                 else:
-                    # 2) Thử rút domain từ tên file (nginx/OLS)
                     m = FILENAME_DOMAIN_RE.match(base)
                     key = (m.group("name") if m else base) + ":" + os.path.abspath(path)
-                # Giữ file mới hơn nếu trùng key logic
                 old = found.get(key)
                 if not old or os.path.getmtime(path) > os.path.getmtime(old):
                     found[key] = path
@@ -110,10 +121,8 @@ class TailFile:
         try:
             st = os.stat(self.path)
         except FileNotFoundError:
-            # rotation nhất thời -> bỏ qua vòng này
             return
         if getattr(st, "st_ino", None) and st.st_ino != self.inode:
-            # inode đổi -> reopen
             try:
                 self.f.close()
             except Exception:
@@ -121,7 +130,6 @@ class TailFile:
             self.f = open(self.path, "r", encoding="utf-8", errors="replace")
             self.inode = os.fstat(self.f.fileno()).st_ino
         else:
-            # nếu truncate
             cur = self.f.tell()
             if st.st_size < cur:
                 self.f.seek(0)
@@ -133,47 +141,77 @@ class TailFile:
 def clear_screen():
     os.system("clear" if os.name != "nt" else "cls")
 
-def get_netstat_info():
-    cmds = [
-        ("Kết nối :80",   ["bash", "-lc", "netstat -alntp 2>/dev/null | grep :80 | wc -l"]),
-        ("Kết nối :443",  ["bash", "-lc", "netstat -alntp 2>/dev/null | grep :443 | wc -l"]),
-        ("ESTABLISHED",   ["bash", "-lc", "netstat -tun 2>/dev/null | grep ESTABLISHED | wc -l"]),
-        ("SYN_RECV",      ["bash", "-lc", "netstat -tunap 2>/dev/null | grep SYN_RECV | wc -l"]),
-    ]
-    # Fallback sang ss nếu netstat không có
-    fallback_cmds = [
-        ("Kết nối :80",   ["bash", "-lc", "ss -lntp 2>/dev/null | grep :80 | wc -l"]),
-        ("Kết nối :443",  ["bash", "-lc", "ss -lntp 2>/dev/null | grep :443 | wc -l"]),
-        ("ESTABLISHED",   ["bash", "-lc", "ss -ant 2>/dev/null | grep ESTAB | wc -l"]),
-        ("SYN_RECV",      ["bash", "-lc", "ss -ant 2>/dev/null | grep SYN-RECV | wc -l"]),
-    ]
+def sh(cmd):
+    try:
+        out = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL)
+        return out.strip("\n")
+    except Exception:
+        return ""
+
+def have_netstat():
+    return shutil.which("netstat") is not None
+
+def get_net_overview():
+    """Trả về dict + flag nguồn ('netstat' hoặc 'ss')."""
+    src = "netstat" if have_netstat() else "ss"
+    if src == "netstat":
+        cmds = {
+            "Kết nối :80":  "netstat -alntp 2>/dev/null | grep :80 | wc -l",
+            "Kết nối :443": "netstat -alntp 2>/dev/null | grep :443 | wc -l",
+            "ESTABLISHED":  "netstat -tun 2>/dev/null | grep ESTABLISHED | wc -l",
+            "SYN_RECV":     "netstat -tunap 2>/dev/null | grep SYN_RECV | wc -l",
+        }
+    else:
+        cmds = {
+            "Kết nối :80":  "ss -lntp 2>/dev/null | grep :80 | wc -l",
+            "Kết nối :443": "ss -lntp 2>/dev/null | grep :443 | wc -l",
+            "ESTABLISHED":  "ss -ant 2>/dev/null | grep ESTAB | wc -l",
+            "SYN_RECV":     "ss -ant 2>/dev/null | grep SYN-RECV | wc -l",
+        }
     res = {}
-    try_first = True
-    for (label, cmd), (_, fb) in zip(cmds, fallback_cmds):
+    for k, cmd in cmds.items():
+        val = sh(cmd)
         try:
-            out = subprocess.check_output(cmd, text=True).strip()
-            res[label] = int(out) if out.isdigit() else out
-        except Exception:
-            try_first = False
-            try:
-                out = subprocess.check_output(fb, text=True).strip()
-                res[label] = int(out) if out.isdigit() else out
-            except Exception as e2:
-                res[label] = f"ERR: {e2}"
-    return res
+            res[k] = int(val.strip())
+        except:
+            res[k] = val.strip() or "0"
+    return res, src
+
+def get_top_ips(threshold=5, limit=5):
+    """Trả về dict[label] -> list dòng 'count ip', chỉ count > threshold, tối đa limit."""
+    use_netstat = have_netstat()
+    if use_netstat:
+        groups = {
+            "Top IP :80":  "netstat -anp 2>/dev/null | grep :80  | awk '{print $5}' | cut -d':' -f1 | sort | uniq -c | sort -nr",
+            "Top IP :443": "netstat -anp 2>/dev/null | grep :443 | awk '{print $5}' | cut -d':' -f1 | sort | uniq -c | sort -nr",
+            "Top IP ESTABLISHED": "netstat -tun 2>/dev/null | grep ESTABLISHED | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -nr",
+        }
+    else:
+        groups = {
+            "Top IP :80":  "ss -antp 2>/dev/null | grep ':80 '  | awk '{print $6}' | cut -d':' -f1 | sort | uniq -c | sort -nr",
+            "Top IP :443": "ss -antp 2>/dev/null | grep ':443 ' | awk '{print $6}' | cut -d':' -f1 | sort | uniq -c | sort -nr",
+            "Top IP ESTABLISHED": "ss -ant 2>/dev/null | grep ESTAB | awk '{print $6}' | cut -d':' -f1 | sort | uniq -c | sort -nr",
+        }
+    out = {}
+    for label, cmd in groups.items():
+        lines = [ln for ln in sh(cmd).splitlines() if ln.strip()]
+        filtered = []
+        for ln in lines:
+            parts = ln.split()
+            if len(parts) >= 2 and parts[0].isdigit():
+                cnt = int(parts[0])
+                if cnt > threshold:  # chỉ > ngưỡng như anh yêu cầu
+                    filtered.append(ln)
+            if len(filtered) >= limit:
+                break
+        out[label] = filtered
+    return out
 
 def extract_domain(line, key, is_apache_vhosts):
-    """
-    Trả về domain dùng để cộng dồn RPS.
-    - is_apache_vhosts=True: cố gắng lấy token đầu (vhost).
-    - Else: lấy domain theo tên file (key trước dấu ':').
-    - Nếu trong dòng có host rõ ràng, có thể mở rộng regex ở đây.
-    """
     if is_apache_vhosts:
         m = APACHE_VHOST_LINE_DOMAIN_RE.match(line)
         if m:
             return m.group(1).lower()
-    # fallback: domain theo "file-derived"
     file_domain = key.split(":", 1)[0]
     return file_domain.lower()
 
@@ -182,79 +220,139 @@ def main():
     dir_list = list(dict.fromkeys((args.dir or []) + CANDIDATE_DIRS))
     interval = args.interval
     rediscover = args.rediscover
-    show_zero = args.show_zero
     start_at_end = not args.start_at_begin
 
-    logs = discover_logs(dir_list)
-    tails = {}
-    for k, p in logs.items():
-        try:
-            tails[k] = TailFile(p, start_at_end)
-        except Exception:
-            pass
+    show_domains = not args.no_domains
 
-    last_rediscover = 0.0
+    tails = {}
+    if show_domains:
+        logs = discover_logs(dir_list)
+        for k, p in logs.items():
+            try:
+                tails[k] = TailFile(p, start_at_end)
+            except Exception:
+                pass
+        last_rediscover = 0.0
+    else:
+        last_rediscover = None
+
+    # Xử lý tham số --topip
+    topip_enabled = args.topip is not None
+    if args.topip == "__DEFAULT__":
+        topip_threshold = 5
+    elif args.topip is None:
+        topip_threshold = None
+    else:
+        try:
+            topip_threshold = int(args.topip)
+        except Exception:
+            topip_threshold = 5
+    TOPIP_LIMIT = 5  # luôn in tối đa 5 IP
 
     while True:
         t0 = time.time()
         counts = defaultdict(int)
 
-        while time.time() - t0 < interval:
-            for key, tf in list(tails.items()):
-                try:
-                    lines = tf.readlines()
-                except Exception:
-                    continue
-                is_apache_vhosts = key.startswith("__apache_vhosts__:")
-                for ln in lines:
-                    dom = extract_domain(ln, key, is_apache_vhosts)
-                    counts[dom] += 1
-            time.sleep(POLL_SLEEP)
-
-        now = time.time()
-        if now - last_rediscover >= rediscover:
-            last_rediscover = now
-            latest = discover_logs(dir_list)
-            # Thêm file mới hoặc thay thế file rotated mới hơn
-            for k, p in latest.items():
-                if k not in tails or p != tails[k].path:
+        if show_domains:
+            while time.time() - t0 < interval:
+                for key, tf in list(tails.items()):
                     try:
-                        tails[k] = TailFile(p, start_at_end)
+                        lines = tf.readlines()
                     except Exception:
-                        pass
+                        continue
+                    is_apache_vhosts = key.startswith("__apache_vhosts__:")
+                    for ln in lines:
+                        dom = extract_domain(ln, key, is_apache_vhosts)
+                        counts[dom] += 1
+                time.sleep(POLL_SLEEP)
+        else:
+            # không cần tail nhưng vẫn refresh theo nhịp
+            remaining = interval - (time.time() - t0)
+            if remaining > 0:
+                time.sleep(remaining)
 
+        if show_domains and last_rediscover is not None:
+            now = time.time()
+            if now - last_rediscover >= rediscover:
+                last_rediscover = now
+                latest = discover_logs(dir_list)
+                for k, p in latest.items():
+                    if k not in tails or p != tails[k].path:
+                        try:
+                            tails[k] = TailFile(p, start_at_end)
+                        except Exception:
+                            pass
+
+        # ===== Render =====
         clear_screen()
-        # Netstat / ss
-        netstat_info = get_netstat_info()
-        print("Tình trạng kết nối (netstat/ss):")
-        for k, v in netstat_info.items():
-            print(f"  {k:<15}: {v}")
 
-        print("\nThống kê kết nối theo miền (real-time)\n")
-        print(f"{'Domain':<32}{'RPS':>8}")
-        print("-" * 42)
+        # 1) Tổng quan kết nối
+        overview, src = get_net_overview()
+        print("Tình trạng kết nối ({}):".format(src))
+        for k, v in overview.items():
+            print(f"  {k:<17}: {v}")
+        if src == "ss":
+            print("\n[Cảnh báo] Không tìm thấy 'netstat'. Đang dùng 'ss' thay thế.")
+            print("  Gợi ý cài netstat (net-tools):")
+            print("    Debian/Ubuntu:  sudo apt-get update -y && sudo apt-get install -y net-tools")
+            print("    CentOS/RHEL:    sudo yum install -y net-tools  (hoặc dnf)")
+            print("    openSUSE:       sudo zypper install -y net-tools")
+            print("    Arch:           sudo pacman -Sy --noconfirm net-tools")
+            print("    Alpine:         sudo apk add --no-cache net-tools")
 
-        rows = [(d, counts.get(d, 0) / interval) for d in counts.keys()]
-        if not show_zero:
-            rows = [(d, r) for d, r in rows if r > 0.0]
+        # 2) Bảng miền (mặc định bật)
+        if show_domains:
+            print("\nThống kê kết nối theo miền (real-time)\n")
+            print(f"{'Domain':<32}{'RPS':>6}")
+            print("-" * 40)
+            rows = [(d, int(round(counts.get(d, 0) / interval))) for d in counts.keys()]
+            if not args.show_zero:
+                rows = [(d, r) for d, r in rows if r > 0]
+            rows.sort(key=lambda x: x[1], reverse=True)
+            shown = 0
+            for d, r in rows:
+                name = (d[:30] + "…") if len(d) > 30 else d
+                print(f"{name:<32}{r:>6d}")
+                shown += 1
+                if shown >= MAX_ROWS:
+                    break
+            if shown == 0:
+                print("(chưa ghi nhận request mới trong khoảng đo)")
 
-        rows.sort(key=lambda x: x[1], reverse=True)
-        shown = 0
-        for d, r in rows:
-            print(f"{(d[:30] + '…' if len(d) > 30 else d):<32}{r:>8.2f}")
-            shown += 1
-            if shown >= MAX_ROWS:
-                break
+        # 3) Top IP (chỉ khi gọi --topip) — hiển thị dưới bảng miền
+        if topip_enabled:
+            thr = topip_threshold if topip_threshold is not None else 5
+            print(f"\nTop IP kết nối (ngưỡng > {thr}, tối đa {TOPIP_LIMIT} IP)")
+            top = get_top_ips(threshold=thr, limit=TOPIP_LIMIT)
+            def _print_top(label):
+                print(f"\n{label}")
+                print("-" * 40)
+                lines = top.get(label, [])
+                if not lines:
+                    print("(không có dữ liệu đạt ngưỡng)")
+                else:
+                    for ln in lines:
+                        print("  " + ln)
+            _print_top("Top IP :80")
+            _print_top("Top IP :443")
+            _print_top("Top IP ESTABLISHED")
 
-        if shown == 0:
-            print("(chưa ghi nhận request mới trong khoảng đo)")
-
-        # Gợi ý nhanh các đường dẫn log đang theo dõi
-        print("\nĐang theo dõi các file log:")
-        for k, tf in list(tails.items())[:10]:
-            print("  -", tf.path)
-        if len(tails) > 10:
-            print(f"  ... và {len(tails) - 10} file khác")
+        # 4) Danh sách file log đang theo dõi (chỉ khi --logfile), cuối màn hình
+        if show_domains and args.logfile:
+            print("\nĐang theo dõi các file log (rút gọn):")
+            seen = set()
+            cnt = 0
+            for _, tf in tails.items():
+                p = os.path.abspath(tf.path)
+                if p in seen:
+                    continue
+                seen.add(p)
+                print("  -", p)
+                cnt += 1
+                if cnt >= 20:
+                    break
+            if len(seen) > cnt:
+                print(f"  ... và {len(seen) - cnt} file khác")
 
 if __name__ == "__main__":
     try:
