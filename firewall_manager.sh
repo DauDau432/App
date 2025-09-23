@@ -377,7 +377,7 @@ FIREWALLS=("firewalld" "ufw" "iptables" "netfilter-persistent" "nftables" "csf" 
 FOUND_FIREWALL=false
 for pkg in "${FIREWALLS[@]}"; do
     if [ "$pkg" = "iptables" ]; then
-        if command -v iptables >/div/null 2>&1; then
+        if command -v iptables >/dev/null 2>&1; then
             IPTABLES_VERSION=$(iptables --version | head -n1 2>/dev/null || echo "Không xác định")
             echo " - $pkg: $IPTABLES_VERSION"
             FOUND_FIREWALL=true
