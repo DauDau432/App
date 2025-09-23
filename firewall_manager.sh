@@ -15,7 +15,7 @@ else
     exit 1
 fi
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.8.0"
+SCRIPT_VERSION="1.8.1"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
 
 # Danh sách Cloudflare IP tĩnh
