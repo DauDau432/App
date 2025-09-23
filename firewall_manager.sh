@@ -72,7 +72,51 @@ check_iptables() {
     fi
 }
 
-# Lựa chọn 1: Cho phép Cloudflare 80/443, chặn IP khác + xóa kết nối cũ
+# Cài đặt package
+install_package() {
+    local pkg=$1
+    echo "[+] Cài đặt $pkg..."
+    case $OS in
+        centos|almalinux|rhel|cloudlinux)
+            yum install -y "$pkg" >/dev/null 2>&1 || dnf install -y "$pkg" >/dev/null 2>&1 ;;
+        ubuntu|debian)
+            apt-get update >/dev/null 2>&1
+            apt-get install -y "$pkg" >/dev/null 2>&1 ;;
+    esac
+    if check_package "$pkg"; then
+        echo "[+] $pkg đã được cài đặt."
+    else
+        echo "[-] Không thể cài đặt $pkg."
+        return 1
+    fi
+}
+
+# Gỡ package
+remove_package() {
+    local pkg=$1
+    local service_name=$2
+    if check_package "$pkg"; then
+        echo "[+] Gói $pkg được cài đặt, tiến hành gỡ cài đặt..."
+        if systemctl is-active --quiet "$service_name"; then
+            systemctl stop "$service_name"
+            echo "[+] Đã dừng $service_name"
+        fi
+        case $OS in
+            centos|almalinux|rhel|cloudlinux)
+                yum remove -y "$pkg" >/dev/null 2>&1 || dnf remove -y "$pkg" >/dev/null 2>&1
+                echo "[+] Đã gỡ $pkg" ;;
+            ubuntu|debian)
+                apt-get remove --purge -y "$pkg" >/dev/null 2>&1
+                dpkg --purge "$pkg" >/dev/null 2>&1
+                apt-get autoremove -y >/dev/null 2>&1
+                echo "[+] Đã gỡ $pkg" ;;
+        esac
+    else
+        echo "[-] Gói $pkg không được cài đặt."
+    fi
+}
+
+# Option 1: Cloudflare allow + flush connection cũ
 configure_cloudflare_rules() {
     if ! check_iptables; then return 1; fi
     echo "[+] Sử dụng danh sách IP Cloudflare tĩnh (IPv4 và IPv6)..."
@@ -81,7 +125,6 @@ configure_cloudflare_rules() {
     iptables -F
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
     for ip in $CLOUDFLARE_IPS_V4; do
         iptables -A INPUT -p tcp -s "$ip" --dport 80 -j ACCEPT
         iptables -A INPUT -p tcp -s "$ip" --dport 443 -j ACCEPT
@@ -95,7 +138,6 @@ configure_cloudflare_rules() {
     ip6tables -F
     ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
-
     for ip in $CLOUDFLARE_IPS_V6; do
         ip6tables -A INPUT -p tcp -s "$ip" --dport 80 -j ACCEPT
         ip6tables -A INPUT -p tcp -s "$ip" --dport 443 -j ACCEPT
@@ -108,17 +150,16 @@ configure_cloudflare_rules() {
     conntrack -D -p tcp --dport 80 >/dev/null 2>&1
     conntrack -D -p tcp --dport 443 >/dev/null 2>&1
 
-    echo "[+] Đã cấu hình rule cho Cloudflare (IPv4 & IPv6) và xóa kết nối cũ."
+    echo "[+] Đã cấu hình rule cho Cloudflare và xóa kết nối cũ."
 }
 
-# Lựa chọn 6: Chặn toàn bộ Cloudflare + xóa kết nối cũ
+# Option 6: Block Cloudflare + flush connection cũ
 block_cloudflare_ips() {
     if ! check_iptables; then return 1; fi
     echo "[+] Chặn IP Cloudflare bằng iptables (IPv4)..."
     iptables -F
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
     for ip in $CLOUDFLARE_IPS_V4; do
         iptables -A INPUT -s "$ip" -j DROP
     done
@@ -129,7 +170,6 @@ block_cloudflare_ips() {
     ip6tables -F
     ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
-
     for ip in $CLOUDFLARE_IPS_V6; do
         ip6tables -A INPUT -s "$ip" -j DROP
     done
@@ -139,10 +179,10 @@ block_cloudflare_ips() {
     conntrack -D -p tcp --dport 80 >/dev/null 2>&1
     conntrack -D -p tcp --dport 443 >/dev/null 2>&1
 
-    echo "[+] Đã chặn toàn bộ IP Cloudflare và xóa kết nối cũ (80/443)."
+    echo "[+] Đã chặn toàn bộ IP Cloudflare và xóa kết nối cũ."
 }
 
-# Lựa chọn 7: Xóa kết nối trên port bất kỳ
+# Option 7: Xóa connection theo port
 clear_connections_on_port() {
     if ! command -v conntrack >/dev/null 2>&1; then
         echo "[-] Gói conntrack chưa được cài. Đang cài đặt..."
@@ -154,19 +194,38 @@ clear_connections_on_port() {
                 apt-get install -y conntrack >/dev/null 2>&1 ;;
         esac
     fi
-
     echo -n "[+] Nhập số cổng muốn xóa kết nối (ví dụ 80, 443, 22): "
     read -r PORT
     if [[ ! "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
         echo "[-] Cổng không hợp lệ!"
         return 1
     fi
-
     echo "[+] Đang xóa toàn bộ kết nối hiện tại đến/đi từ cổng $PORT..."
     conntrack -D -p tcp --dport "$PORT" >/dev/null 2>&1
     conntrack -D -p tcp --sport "$PORT" >/dev/null 2>&1
     echo "[+] Đã xóa tất cả kết nối TCP liên quan đến cổng $PORT."
 }
+
+# Kiểm tra firewall đã cài
+echo "[+] Các firewall hiện có:"
+FIREWALLS=("firewalld" "ufw" "iptables" "netfilter-persistent" "nftables" "csf" "fail2ban")
+FOUND_FIREWALL=false
+for pkg in "${FIREWALLS[@]}"; do
+    if [ "$pkg" = "iptables" ]; then
+        if command -v iptables >/dev/null 2>&1; then
+            IPTABLES_VERSION=$(iptables --version | head -n1 2>/dev/null || echo "Không xác định")
+            echo " - $pkg: $IPTABLES_VERSION"
+            FOUND_FIREWALL=true
+        fi
+    elif check_package "$pkg"; then
+        echo " - $pkg: Đã cài đặt"
+        FOUND_FIREWALL=true
+    fi
+done
+if ! $FOUND_FIREWALL; then
+    echo " - Không tìm thấy firewall nào."
+fi
+echo ""
 
 # Menu
 while true; do
