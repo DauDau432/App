@@ -15,7 +15,7 @@ else
     exit 1
 fi
 echo "[+] Hệ điều hành: $PRETTY_NAME"
-SCRIPT_VERSION="1.8.1"
+SCRIPT_VERSION="1.8.2"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
 # Danh sách Cloudflare IP tĩnh
 CLOUDFLARE_IPS_V4="173.245.48.0/20
@@ -54,7 +54,12 @@ check_package() {
         centos|almalinux|rhel|cloudlinux)
             rpm -q "$pkg" >/dev/null 2>&1 && return 0 || return 1 ;;
         ubuntu|debian)
-            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii $pkg " && return 0 || return 1 ;;
+            # Kiểm tra gói chính hoặc gói liên quan (iptables-persistent)
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii $pkg " && return 0
+            if [ "$pkg" = "iptables" ]; then
+                dpkg -l "iptables-persistent" 2>/dev/null | grep -q "^ii iptables-persistent " && return 0
+            fi
+            return 1 ;;
         *) return 1 ;;
     esac
 }
@@ -355,7 +360,22 @@ remove_all_firewalls() {
             1)
                 remove_package firewalld firewalld.service
                 remove_package ufw ufw.service
-                remove_package iptables iptables.service
+                # Kiểm tra và gỡ cả iptables và iptables-persistent
+                if command -v iptables >/dev/null 2>&1; then
+                    echo "[+] Gói iptables được phát hiện, tiến hành gỡ cài đặt..."
+                    case $OS in
+                        centos|almalinux|rhel|cloudlinux)
+                            yum remove -y iptables iptables-services >/dev/null 2>&1 || dnf remove -y iptables iptables-services >/dev/null 2>&1
+                            echo "[+] Đã gỡ iptables" ;;
+                        ubuntu|debian)
+                            apt-get remove --purge -y iptables iptables-persistent >/dev/null 2>&1
+                            dpkg --purge iptables iptables-persistent >/dev/null 2>&1
+                            apt-get autoremove -y >/dev/null 2>&1
+                            echo "[+] Đã gỡ iptables và iptables-persistent" ;;
+                    esac
+                else
+                    echo "[-] Gói iptables không được cài đặt."
+                fi
                 remove_package netfilter-persistent netfilter-persistent.service
                 remove_package nftables nftables.service
                 remove_package csf csf.service
