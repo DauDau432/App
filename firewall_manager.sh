@@ -17,7 +17,6 @@ fi
 echo "[+] Hệ điều hành: $PRETTY_NAME"
 SCRIPT_VERSION="1.8.1"
 echo "[+] Phiên bản script: $SCRIPT_VERSION"
-
 # Danh sách Cloudflare IP tĩnh
 CLOUDFLARE_IPS_V4="173.245.48.0/20
 185.122.0.0/22
@@ -48,7 +47,6 @@ CLOUDFLARE_IPS_V6="2400:cb00::/32
 2405:8100::/32
 2a06:98c0::/29
 2c0f:f248::/32"
-
 # ===== HÀM DÙNG CHUNG =====
 check_package() {
     local pkg=$1
@@ -56,11 +54,10 @@ check_package() {
         centos|almalinux|rhel|cloudlinux)
             rpm -q "$pkg" >/dev/null 2>&1 && return 0 || return 1 ;;
         ubuntu|debian)
-            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii  $pkg " && return 0 || return 1 ;;
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii $pkg " && return 0 || return 1 ;;
         *) return 1 ;;
     esac
 }
-
 check_iptables() {
     if command -v iptables >/dev/null 2>&1; then
         IPTABLES_VERSION=$(iptables --version | head -n1)
@@ -70,7 +67,6 @@ check_iptables() {
         return 1
     fi
 }
-
 install_package() {
     local pkg=$1
     echo "[+] Cài đặt $pkg..."
@@ -88,7 +84,6 @@ install_package() {
         return 1
     fi
 }
-
 remove_package() {
     local pkg=$1
     local service_name=$2
@@ -112,7 +107,6 @@ remove_package() {
         echo "[-] Gói $pkg không được cài đặt."
     fi
 }
-
 ensure_conntrack() {
     if ! command -v conntrack >/dev/null 2>&1; then
         echo "[-] conntrack chưa có. Đang cài đặt..."
@@ -125,19 +119,45 @@ ensure_conntrack() {
         esac
     fi
 }
-
-# ===== CÁC HÀM GỐC (GIỮ NGUYÊN/UPDATE NHƯ YÊU CẦU) =====
+# ===== CÁC HÀM GỐC (ĐÃ SỬA) =====
 configure_cloudflare_rules() {
     if ! check_iptables; then
         return 1
     fi
     echo "[+] Sử dụng danh sách IP Cloudflare tĩnh (IPv4 và IPv6)..."
+    # Tự động phát hiện các cổng đang mở
+    echo "[+] Phát hiện các cổng đang mở trên hệ thống..."
+    OPEN_PORTS=$(ss -tulnp 2>/dev/null | grep -E 'LISTEN' | awk '{print $5}' | cut -d: -f2 | sort -u || echo "")
+    if [ -z "$OPEN_PORTS" ]; then
+        echo "[-] Không tìm thấy cổng đang mở hoặc công cụ ss không được cài đặt."
+        echo "[+] Nhập các cổng cần cho phép (cách nhau bằng dấu cách, ví dụ: 35053 8080, hoặc nhấn Enter để bỏ qua):"
+        read -r CUSTOM_PORTS
+    else
+        echo "[+] Các cổng đang mở: $OPEN_PORTS"
+        echo "[+] Nhập thêm cổng cần cho phép (nếu có, cách nhau bằng dấu cách, hoặc nhấn Enter để bỏ qua):"
+        read -r CUSTOM_PORTS
+    fi
     echo "[+] Cấu hình rule iptables cho Cloudflare (IPv4)..."
     iptables -F
-    # Giữ kết nối hợp lệ & SSH
+    iptables -P INPUT ACCEPT
+    iptables -P FORWARD ACCEPT
+    iptables -P OUTPUT ACCEPT
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
+    # Thêm quy tắc ACCEPT cho các cổng đang mở
+    for port in $OPEN_PORTS; do
+        if [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng $port (IPv4)."
+        fi
+    done
+    # Thêm quy tắc ACCEPT cho các cổng tùy chỉnh
+    for port in $CUSTOM_PORTS; do
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] && [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng tùy chỉnh $port (IPv4)."
+        fi
+    done
     for ip in $CLOUDFLARE_IPS_V4; do
         iptables -A INPUT -p tcp -s "$ip" --dport 80 -j ACCEPT
         iptables -A INPUT -p tcp -s "$ip" --dport 443 -j ACCEPT
@@ -146,11 +166,25 @@ configure_cloudflare_rules() {
     iptables -A INPUT -p tcp --dport 443 -j DROP
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4
-
     echo "[+] Cấu hình rule ip6tables cho Cloudflare (IPv6)..."
     ip6tables -F
+    ip6tables -P INPUT ACCEPT
+    ip6tables -P FORWARD ACCEPT
+    ip6tables -P OUTPUT ACCEPT
     ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
+    for port in $OPEN_PORTS; do
+        if [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            ip6tables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng $port (IPv6)."
+        fi
+    done
+    for port in $CUSTOM_PORTS; do
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] && [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            ip6tables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng tùy chỉnh $port (IPv6)."
+        fi
+    done
     for ip in $CLOUDFLARE_IPS_V6; do
         ip6tables -A INPUT -p tcp -s "$ip" --dport 80 -j ACCEPT
         ip6tables -A INPUT -p tcp -s "$ip" --dport 443 -j ACCEPT
@@ -158,51 +192,33 @@ configure_cloudflare_rules() {
     ip6tables -A INPUT -p tcp --dport 80 -j DROP
     ip6tables -A INPUT -p tcp --dport 443 -j DROP
     ip6tables-save > /etc/iptables/rules.v6
-
-    # Xóa connection cũ để rule có tác dụng ngay
     ensure_conntrack
     echo "[+] Xóa toàn bộ kết nối cũ trên cổng 80/443..."
     conntrack -D -p tcp --dport 80 >/dev/null 2>&1
     conntrack -D -p tcp --dport 443 >/dev/null 2>&1
     echo "[+] Đã cấu hình rule cho Cloudflare (IPv4 & IPv6) và xóa kết nối cũ."
+    echo "[+] Tất cả các cổng khác ngoài 80/443 đều được phép truy cập."
 }
-
-block_cloudflare_ips() {
-    if ! check_iptables; then
-        return 1
-    fi
-    echo "[+] Chặn IP Cloudflare bằng iptables (IPv4)..."
-    iptables -F
-    # Giữ kết nối hợp lệ & SSH
-    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
-    for ip in $CLOUDFLARE_IPS_V4; do
-        iptables -A INPUT -s "$ip" -j DROP
-    done
-    mkdir -p /etc/iptables
-    iptables-save > /etc/iptables/rules.v4
-
-    echo "[+] Chặn IP Cloudflare bằng ip6tables (IPv6)..."
-    ip6tables -F
-    ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
-    for ip in $CLOUDFLARE_IPS_V6; do
-        ip6tables -A INPUT -s "$ip" -j DROP
-    done
-    ip6tables-save > /etc/iptables/rules.v6
-
-    # Xóa connection cũ để rule có tác dụng ngay
-    ensure_conntrack
-    echo "[+] Xóa toàn bộ kết nối cũ trên cổng 80/443..."
-    conntrack -D -p tcp --dport 80 >/dev/null 2>&1
-    conntrack -D -p tcp --dport 443 >/dev/null 2>&1
-    echo "[+] Đã chặn toàn bộ IP Cloudflare (IPv4 & IPv6) và xóa kết nối cũ."
-}
-
 add_custom_ip_subnet() {
     if ! check_iptables; then
         return 1
+    fi
+    iptables -P INPUT ACCEPT
+    iptables -P FORWARD ACCEPT
+    iptables -P OUTPUT ACCEPT
+    ip6tables -P INPUT ACCEPT
+    ip6tables -P FORWARD ACCEPT
+    ip6tables -P OUTPUT ACCEPT
+    echo "[+] Phát hiện các cổng đang mở trên hệ thống..."
+    OPEN_PORTS=$(ss -tulnp 2>/dev/null | grep -E 'LISTEN' | awk '{print $5}' | cut -d: -f2 | sort -u || echo "")
+    if [ -z "$OPEN_PORTS" ]; then
+        echo "[-] Không tìm thấy cổng đang mở hoặc công cụ ss không được cài đặt."
+        echo "[+] Nhập các cổng cần cho phép (cách nhau bằng dấu cách, ví dụ: 35053 8080, hoặc nhấn Enter để bỏ qua):"
+        read -r CUSTOM_PORTS
+    else
+        echo "[+] Các cổng đang mở: $OPEN_PORTS"
+        echo "[+] Nhập thêm cổng cần cho phép (nếu có, cách nhau bằng dấu cách, hoặc nhấn Enter để bỏ qua):"
+        read -r CUSTOM_PORTS
     fi
     while true; do
         echo "[+] Nhập địa chỉ IP hoặc subnet (ví dụ: 192.168.1.1 hoặc 192.168.1.0/24):"
@@ -212,9 +228,9 @@ add_custom_ip_subnet() {
             continue
         fi
         echo "[+] Chọn kiểu rule:"
-        echo "  0. Quay lại"
-        echo "  1. Thêm rule INPUT/OUTPUT cho IP/subnet"
-        echo "  2. Thêm rule cho cổng 80/443"
+        echo " 0. Quay lại"
+        echo " 1. Thêm rule INPUT/OUTPUT cho IP/subnet"
+        echo " 2. Thêm rule cho cổng 80/443"
         read -r rule_choice
         case $rule_choice in
             0)
@@ -245,11 +261,26 @@ add_custom_ip_subnet() {
                     iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
                     iptables -A INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
                 fi
+                for port in $OPEN_PORTS; do
+                    if [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+                        iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+                        ip6tables -A INPUT -p tcp --dport "$port" -j ACCEPT
+                        echo "[+] Đã cho phép cổng $port."
+                    fi
+                done
+                for port in $CUSTOM_PORTS; do
+                    if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] && [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+                        iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+                        ip6tables -A INPUT -p tcp --dport "$port" -j ACCEPT
+                        echo "[+] Đã cho phép cổng tùy chỉnh $port."
+                    fi
+                done
                 iptables -A INPUT -p tcp --dport 80 -j DROP
                 iptables -A INPUT -p tcp --dport 443 -j DROP
                 ip6tables -A INPUT -p tcp --dport 80 -j DROP
                 ip6tables -A INPUT -p tcp --dport 443 -j DROP
                 echo "[+] Đã thêm $CUSTOM_IP vào danh sách được phép (cổng 80/443)."
+                echo "[+] Tất cả các cổng khác ngoài 80/443 đều được phép truy cập."
                 ;;
             *)
                 echo "[-] Lựa chọn không hợp lệ! Vui lòng chọn lại."
@@ -262,12 +293,19 @@ add_custom_ip_subnet() {
         return 0
     done
 }
-
 remove_port_restrictions() {
     if ! check_iptables; then
         return 1
     fi
-    echo "[+] Gỡ rule chặn cổng 80 và 443..."
+    echo "[+] Phát hiện các cổng đang mở trên hệ thống..."
+    OPEN_PORTS=$(ss -tulnp 2>/dev/null | grep -E 'LISTEN' | awk '{print $5}' | cut -d: -f2 | sort -u || echo "")
+    if [ -z "$OPEN_PORTS" ]; then
+        echo "[-] Không tìm thấy cổng đang mở hoặc công cụ ss không được cài đặt."
+    else
+        echo "[+] Các cổng đang mở: $OPEN_PORTS"
+    fi
+    echo "[!] Cảnh báo: Tất cả các cổng sẽ được mở (bao gồm cổng của aaPanel, 80, 443, v.v.). Hệ thống sẽ không có firewall bảo vệ."
+    echo "[+] Gỡ toàn bộ quy tắc firewall..."
     iptables -F
     iptables -P INPUT ACCEPT
     iptables -P FORWARD ACCEPT
@@ -279,9 +317,8 @@ remove_port_restrictions() {
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4
     ip6tables-save > /etc/iptables/rules.v6
-    echo "[+] Đã gỡ rule chặn cổng 80 và 443."
+    echo "[+] Đã gỡ toàn bộ quy tắc firewall. Tất cả các cổng giờ đây được phép."
 }
-
 install_iptables() {
     echo "[+] Cài đặt iptables..."
     install_package iptables
@@ -296,12 +333,19 @@ install_iptables() {
         fi
     fi
 }
-
 remove_all_firewalls() {
     while true; do
+        echo "[+] Phát hiện các cổng đang mở trên hệ thống..."
+        OPEN_PORTS=$(ss -tulnp 2>/dev/null | grep -E 'LISTEN' | awk '{print $5}' | cut -d: -f2 | sort -u || echo "")
+        if [ -z "$OPEN_PORTS" ]; then
+            echo "[-] Không tìm thấy cổng đang mở hoặc công cụ ss không được cài đặt."
+        else
+            echo "[+] Các cổng đang mở: $OPEN_PORTS"
+        fi
+        echo "[!] Cảnh báo: Gỡ tất cả firewall sẽ mở toàn bộ cổng (bao gồm cổng của aaPanel, 80, 443, v.v.). Hệ thống có thể không được bảo vệ."
         echo "[+] Bạn có chắc chắn muốn gỡ cài đặt tất cả firewall?"
-        echo "  0. Quay lại"
-        echo "  1. Tiếp tục gỡ cài đặt"
+        echo " 0. Quay lại"
+        echo " 1. Tiếp tục gỡ cài đặt"
         read -r confirm_choice
         case $confirm_choice in
             0)
@@ -355,8 +399,75 @@ remove_all_firewalls() {
         esac
     done
 }
-
-# ===== TÍNH NĂNG MỚI: XÓA KẾT NỐI THEO PORT (OPTION 7) =====
+block_cloudflare_ips() {
+    if ! check_iptables; then
+        return 1
+    fi
+    echo "[+] Phát hiện các cổng đang mở trên hệ thống..."
+    OPEN_PORTS=$(ss -tulnp 2>/dev/null | grep -E 'LISTEN' | awk '{print $5}' | cut -d: -f2 | sort -u || echo "")
+    if [ -z "$OPEN_PORTS" ]; then
+        echo "[-] Không tìm thấy cổng đang mở hoặc công cụ ss không được cài đặt."
+        echo "[+] Nhập các cổng cần cho phép (cách nhau bằng dấu cách, ví dụ: 35053 8080, hoặc nhấn Enter để bỏ qua):"
+        read -r CUSTOM_PORTS
+    else
+        echo "[+] Các cổng đang mở: $OPEN_PORTS"
+        echo "[+] Nhập thêm cổng cần cho phép (nếu có, cách nhau bằng dấu cách, hoặc nhấn Enter để bỏ qua):"
+        read -r CUSTOM_PORTS
+    fi
+    echo "[+] Chặn IP Cloudflare bằng iptables (IPv4)..."
+    iptables -F
+    iptables -P INPUT ACCEPT
+    iptables -P FORWARD ACCEPT
+    iptables -P OUTPUT ACCEPT
+    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+    for port in $OPEN_PORTS; do
+        if [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng $port (IPv4)."
+        fi
+    done
+    for port in $CUSTOM_PORTS; do
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] && [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng tùy chỉnh $port (IPv4)."
+        fi
+    done
+    for ip in $CLOUDFLARE_IPS_V4; do
+        iptables -A INPUT -s "$ip" -j DROP
+    done
+    mkdir -p /etc/iptables
+    iptables-save > /etc/iptables/rules.v4
+    echo "[+] Chặn IP Cloudflare bằng ip6tables (IPv6)..."
+    ip6tables -F
+    ip6tables -P INPUT ACCEPT
+    ip6tables -P FORWARD ACCEPT
+    ip6tables -P OUTPUT ACCEPT
+    ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
+    for port in $OPEN_PORTS; do
+        if [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            ip6tables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng $port (IPv6)."
+        fi
+    done
+    for port in $CUSTOM_PORTS; do
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] && [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
+            ip6tables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng tùy chỉnh $port (IPv6)."
+        fi
+    done
+    for ip in $CLOUDFLARE_IPS_V6; do
+        ip6tables -A INPUT -s "$ip" -j DROP
+    done
+    ip6tables-save > /etc/iptables/rules.v6
+    ensure_conntrack
+    echo "[+] Xóa toàn bộ kết nối cũ trên cổng 80/443..."
+    conntrack -D -p tcp --dport 80 >/dev/null 2>&1
+    conntrack -D -p tcp --dport 443 >/dev/null 2>&1
+    echo "[+] Đã chặn toàn bộ IP Cloudflare (IPv4 & IPv6) và xóa kết nối cũ."
+    echo "[+] Tất cả các cổng khác ngoài 80/443 đều được phép truy cập."
+}
 clear_connections_on_port() {
     ensure_conntrack
     echo -n "[+] Nhập số cổng muốn xóa kết nối (ví dụ 80, 443, 22): "
@@ -370,8 +481,34 @@ clear_connections_on_port() {
     conntrack -D -p tcp --sport "$PORT" >/dev/null 2>&1
     echo "[+] Đã xóa tất cả kết nối TCP liên quan đến cổng $PORT."
 }
-
-# ===== LIỆT KÊ FIREWALL ĐANG CÀI (GIỮ NGUYÊN) =====
+allow_custom_ports() {
+    if ! check_iptables; then
+        return 1
+    fi
+    echo "[+] Phát hiện các cổng đang mở trên hệ thống..."
+    OPEN_PORTS=$(ss -tulnp 2>/dev/null | grep -E 'LISTEN' | awk '{print $5}' | cut -d: -f2 | sort -u || echo "")
+    if [ -z "$OPEN_PORTS" ]; then
+        echo "[-] Không tìm thấy cổng đang mở hoặc công cụ ss không được cài đặt."
+    else
+        echo "[+] Các cổng đang mở: $OPEN_PORTS"
+    fi
+    echo "[+] Nhập danh sách cổng cần cho phép (cách nhau bằng dấu cách, ví dụ: 35053 8080):"
+    read -r CUSTOM_PORTS
+    for port in $CUSTOM_PORTS; do
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            ip6tables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            echo "[+] Đã cho phép cổng $port."
+        else
+            echo "[-] Cổng $port không hợp lệ, bỏ qua."
+        fi
+    done
+    mkdir -p /etc/iptables
+    iptables-save > /etc/iptables/rules.v4
+    ip6tables-save > /etc/iptables/rules.v6
+    echo "[+] Đã lưu quy tắc iptables."
+}
+# ===== LIỆT KÊ FIREWALL ĐANG CÀI =====
 echo "[+] Các firewall hiện có:"
 FIREWALLS=("firewalld" "ufw" "iptables" "netfilter-persistent" "nftables" "csf" "fail2ban")
 FOUND_FIREWALL=false
@@ -391,7 +528,6 @@ if ! $FOUND_FIREWALL; then
     echo " - Không tìm thấy firewall nào."
 fi
 echo ""
-
 # ===== MENU =====
 while true; do
     echo "================================="
@@ -399,14 +535,15 @@ while true; do
     echo "================================="
     echo "1. Cho phép IP Cloudflare, chặn 80/443 cho IP khác (xóa kết nối cũ)"
     echo "2. Thêm IP/subnet vào danh sách được phép"
-    echo "3. Gỡ rule chặn cổng 80/443"
+    echo "3. Gỡ toàn bộ quy tắc firewall và mở tất cả cổng"
     echo "4. Cài đặt iptables"
     echo "5. Gỡ cài đặt tất cả firewall"
     echo "6. Chặn toàn bộ IP Cloudflare (xóa kết nối cũ)"
     echo "7. Xóa toàn bộ kết nối hiện tại trên 1 cổng"
+    echo "8. Cho phép các cổng tùy chỉnh"
     echo "0. Thoát"
     echo "================================="
-    echo -n "Nhập lựa chọn của bạn [0-7]: "
+    echo -n "Nhập lựa chọn của bạn [0-8]: "
     read choice
     case $choice in
         1) configure_cloudflare_rules; echo "" ;;
@@ -416,6 +553,7 @@ while true; do
         5) remove_all_firewalls; echo "" ;;
         6) block_cloudflare_ips; echo "" ;;
         7) clear_connections_on_port; echo "" ;;
+        8) allow_custom_ports; echo "" ;;
         0) echo "[+] Thoát chương trình."; exit 0 ;;
         *) echo "[-] Lựa chọn không hợp lệ! Vui lòng chọn lại."; echo "" ;;
     esac
