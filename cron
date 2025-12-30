@@ -1,0 +1,12 @@
+cat << 'EOF' > /root/license_update.sh
+#!/bin/bash
+RcLicenseCP
+RcLicenseLSWS
+RcLicenseCLN
+RcLicenseImunify360
+RcLicenseJetBackup
+EOF
+
+chmod +x /root/license_update.sh
+
+(crontab -l 2>/dev/null; echo "0 0,12 * * * /root/license_update.sh > /dev/null 2>&1") | crontab -
