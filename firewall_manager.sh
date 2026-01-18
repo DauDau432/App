@@ -326,9 +326,9 @@ declare -A FIREWALL_COMMANDS=(
 # ===== LIỆT KÊ FIREWALL ĐANG CÀI =====
 list_installed_firewalls() {
     echo -e "${WHITE}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${WHITE}║${NC}            ${CYAN}INSTALLED FIREWALLS ON SYSTEM${NC}                 ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}         ${CYAN}DANH SÁCH FIREWALL ĐÃ CÀI TRÊN HỆ THỐNG${NC}          ${WHITE}║${NC}"
     echo -e "${WHITE}╠══════════════════════════════════════════════════════════╣${NC}"
-    printf "${WHITE}║${NC} %-14s %-12s %-8s %-18s ${WHITE}║${NC}\n" "NAME" "STATUS" "AUTO" "VERSION"
+    printf "${WHITE}║${NC} %-14s %-12s %-8s %-18s ${WHITE}║${NC}\n" "TÊN" "STATUS" "AUTO" "VERSION"
     echo -e "${WHITE}╠──────────────────────────────────────────────────────────╣${NC}"
     
     local found=false
@@ -367,31 +367,31 @@ list_installed_firewalls() {
             [ -z "$version" ] && version="-"
             
             # Check service status
-            local status="${YELLOW}Unknown${NC}"
+            local status="${YELLOW}Không rõ${NC}"
             local autostart="${YELLOW}N/A${NC}"
             
             if systemctl list-unit-files "$service" 2>/dev/null | grep -q "$service"; then
                 if systemctl is-active --quiet "$service" 2>/dev/null; then
-                    status="${GREEN}Running${NC}"
+                    status="${GREEN}Đang chạy${NC}"
                 else
-                    status="${RED}Stopped${NC}"
+                    status="${RED}Đã dừng${NC}"
                 fi
                 
                 if systemctl is-enabled --quiet "$service" 2>/dev/null; then
-                    autostart="${GREEN}ON${NC}"
+                    autostart="${GREEN}BẬT${NC}"
                 else
-                    autostart="${RED}OFF${NC}"
+                    autostart="${RED}TẮT${NC}"
                 fi
             else
                 # Special check for iptables without service
                 if [ "$pkg" = "iptables" ] && check_command iptables; then
                     local rule_count=$(iptables -L -n 2>/dev/null | wc -l)
                     if [ "$rule_count" -gt 8 ]; then
-                        status="${GREEN}Active${NC}"
+                        status="${GREEN}Hoạt động${NC}"
                     else
-                        status="${YELLOW}Empty${NC}"
+                        status="${YELLOW}Trống${NC}"
                     fi
-                    autostart="${YELLOW}Manual${NC}"
+                    autostart="${YELLOW}Thủ công${NC}"
                 fi
             fi
             
@@ -405,7 +405,7 @@ list_installed_firewalls() {
     done
     
     if ! $found; then
-        printf "${WHITE}║${NC} %-56s ${WHITE}║${NC}\n" "No firewall installed."
+        printf "${WHITE}║${NC} %-56s ${WHITE}║${NC}\n" "Không có firewall nào được cài đặt."
     fi
     
     echo -e "${WHITE}╚══════════════════════════════════════════════════════════╝${NC}"
@@ -419,12 +419,12 @@ configure_cloudflare_rules() {
     fi
     
     clear
-    print_info "Configuring Cloudflare IP rules..."
+    print_info "Đang cấu hình các rule cho IP Cloudflare..."
     
     OPEN_PORTS=$(get_open_ports)
-    print_info "Open ports: ${OPEN_PORTS:-None}"
+    print_info "Cổng (port) đang mở: ${OPEN_PORTS:-Không có}"
     
-    echo -n "Enter additional ports to allow (space separated, Enter to skip): "
+    echo -n "Nhập thêm các cổng (port) muốn mở (cách nhau bởi khoảng trắng, Enter để bỏ qua): "
     read -r CUSTOM_PORTS
     
     # Reset IPv4 rules
@@ -443,7 +443,7 @@ configure_cloudflare_rules() {
         if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
             if [[ "$port" != "80" && "$port" != "443" && "$port" != "22" ]]; then
                 iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
-                print_info "Allowed port $port (IPv4)"
+                print_info "Đã cho phép cổng $port (IPv4)"
             fi
         fi
     done
@@ -493,13 +493,13 @@ configure_cloudflare_rules() {
     conntrack -D -p tcp --dport 80 >/dev/null 2>&1
     conntrack -D -p tcp --dport 443 >/dev/null 2>&1
     
-    print_info "Cloudflare IP rules configured."
+    print_info "Đã cấu hình xong các IP Cloudflare."
     echo ""
-    echo -n "Press Enter to continue..."
+    echo -n "Nhấn Enter để tiếp tục..."
     read -r
 }
 
-# ===== ADD CUSTOM IP/SUBNET =====
+# ===== THÊM IP/SUBNET TÙY CHỈNH =====
 add_custom_ip_subnet() {
     if ! check_iptables; then
         return 1
@@ -508,20 +508,20 @@ add_custom_ip_subnet() {
     clear
     while true; do
         echo ""
-        echo -n "Enter IP or subnet (e.g. 192.168.1.1 or 192.168.1.0/24): "
+        echo -n "Nhập IP hoặc subnet (ví dụ: 192.168.1.1 hoặc 192.168.1.0/24): "
         read -r CUSTOM_IP
         
         if [ -z "$CUSTOM_IP" ]; then
-            print_error "Please enter IP/subnet."
+            print_error "Vui lòng nhập IP/subnet."
             continue
         fi
         
         echo ""
-        echo "Select rule type:"
-        echo "  1. Allow all connections from/to this IP"
-        echo "  2. Allow only port 80/443"
-        echo "  0. Back"
-        echo -n "Select [0-2]: "
+        echo "Chọn loại rule:"
+        echo "  1. Cho phép tất cả kết nối từ/đến IP này"
+        echo "  2. Chỉ cho phép cổng 80/443"
+        echo "  0. Quay lại"
+        echo -n "Chọn [0-2]: "
         read -r rule_choice
         
         case $rule_choice in
@@ -536,7 +536,7 @@ add_custom_ip_subnet() {
                     iptables -I INPUT -s "$CUSTOM_IP" -j ACCEPT
                     iptables -I OUTPUT -d "$CUSTOM_IP" -j ACCEPT
                 fi
-                print_info "Added rule for $CUSTOM_IP (all connections)."
+                print_info "Đã thêm rule cho $CUSTOM_IP (tất cả kết nối)."
                 ;;
             2)
                 if [[ "$CUSTOM_IP" =~ : ]]; then
@@ -546,35 +546,35 @@ add_custom_ip_subnet() {
                     iptables -I INPUT -p tcp -s "$CUSTOM_IP" --dport 80 -j ACCEPT
                     iptables -I INPUT -p tcp -s "$CUSTOM_IP" --dport 443 -j ACCEPT
                 fi
-                print_info "Added rule for $CUSTOM_IP (port 80/443)."
+                print_info "Đã thêm rule cho $CUSTOM_IP (cổng 80/443)."
                 ;;
             *)
-                print_error "Invalid selection!"
+                print_error "Lựa chọn không hợp lệ!"
                 continue
                 ;;
         esac
         
         save_iptables_rules
         echo ""
-        echo -n "Press Enter to continue..."
+        echo -n "Nhấn Enter để tiếp tục..."
         read -r
         return 0
     done
 }
 
-# ===== BLOCK CLOUDFLARE IPS =====
+# ===== CHẶN TẤT CẢ IP CLOUDFLARE =====
 block_cloudflare_ips() {
     if ! check_iptables; then
         return 1
     fi
     
     clear
-    print_info "Blocking all Cloudflare IPs..."
+    print_info "Đang chặn tất cả các IP Cloudflare..."
     
     OPEN_PORTS=$(get_open_ports)
-    print_info "Open ports: ${OPEN_PORTS:-None}"
+    print_info "Cổng (port) đang mở: ${OPEN_PORTS:-Không có}"
     
-    echo -n "Enter additional ports to allow (space separated, Enter to skip): "
+    echo -n "Nhập thêm các cổng (port) muốn mở (cách nhau bởi dấu cách, Enter để bỏ qua): "
     read -r CUSTOM_PORTS
     
     # Reset và cấu hình IPv4
@@ -629,28 +629,28 @@ block_cloudflare_ips() {
     conntrack -D -p tcp --dport 80 >/dev/null 2>&1
     conntrack -D -p tcp --dport 443 >/dev/null 2>&1
     
-    print_info "All Cloudflare IPs blocked."
+    print_info "Đã chặn tất cả IP Cloudflare."
     echo ""
-    echo -n "Press Enter to continue..."
+    echo -n "Nhấn Enter để tiếp tục..."
     read -r
 }
 
-# ===== REMOVE ALL RULES =====
+# ===== XÓA TẤT CẢ RULES (MỞ CỔNG) =====
 remove_all_rules() {
     if ! check_iptables; then
         return 1
     fi
     
-    print_warn "Warning: All ports will be open!"
-    echo -n "Are you sure? (y/N): "
+    print_warn "Cảnh báo: Tất cả các cổng sẽ được mở (không có firewall bảo vệ)!"
+    echo -n "Bạn có chắc chắn muốn tiếp tục? (y/N): "
     read -r confirm
     
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        print_info "Cancelled."
+        print_info "Đã hủy bỏ."
         return 0
     fi
     
-    print_info "Removing all rules..."
+    print_info "Đang xóa tất cả các rules..."
     
     iptables -F
     iptables -X
@@ -668,9 +668,9 @@ remove_all_rules() {
     
     save_iptables_rules
     
-    print_info "All rules removed. All ports are open."
+    print_info "Đã xóa tất cả các rules. Tất cả cổng đã được mở."
     echo ""
-    echo -n "Press Enter to continue..."
+    echo -n "Nhấn Enter để tiếp tục..."
     read -r
 }
 
@@ -702,14 +702,14 @@ install_iptables_pkg() {
 # ===== TẮT TẤT CẢ FIREWALL (GIỮ LẠI ĐỂ BẬT LẠI) =====
 stop_disable_all_firewalls() {
     echo ""
-    print_warn "Stop all firewalls and disable auto-start."
-    print_info "Firewalls will NOT be uninstalled, can be re-enabled later."
+    print_warn "Dừng tất cả các firewall và tắt tính năng tự động khởi động (auto-start)."
+    print_info "Các firewall sẽ KHÔNG bị gỡ cài đặt, có thể bật lại sau."
     echo ""
-    echo -n "Are you sure? (y/N): "
+    echo -n "Bạn có chắc chắn? (y/N): "
     read -r confirm
     
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        print_info "Cancelled."
+        print_info "Đã hủy bỏ."
         return 0
     fi
     
@@ -723,21 +723,21 @@ stop_disable_all_firewalls() {
         if systemctl list-unit-files "$service" >/dev/null 2>&1; then
             if systemctl is-active --quiet "$service" 2>/dev/null; then
                 systemctl stop "$service" 2>/dev/null
-                print_info "Stopped: $pkg"
+                print_info "Đã dừng: $pkg"
                 ((stopped_count++))
             fi
             
             if systemctl is-enabled --quiet "$service" 2>/dev/null; then
                 systemctl disable "$service" 2>/dev/null
-                print_info "Disabled auto-start: $pkg"
+                print_info "Đã tắt auto-start: $pkg"
                 ((disabled_count++))
             fi
         fi
     done
     
-    # Clear iptables rules (keep package)
+    # Xóa các rule iptables (giữ lại package)
     if check_command iptables; then
-        print_info "Clearing iptables rules..."
+        print_info "Đang xả (flush) các rule iptables..."
         iptables -F
         iptables -X
         iptables -t nat -F 2>/dev/null
@@ -763,10 +763,10 @@ stop_disable_all_firewalls() {
     
     if check_command nft; then
         nft flush ruleset 2>/dev/null
-        print_info "Cleared nftables ruleset"
+        print_info "Đã xả (flush) nftables ruleset"
     fi
     
-    # Backup old rules
+    # Sao lưu các rule cũ
     if [ -f /etc/iptables/rules.v4 ]; then
         cp /etc/iptables/rules.v4 /etc/iptables/rules.v4.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null
     fi
@@ -774,7 +774,7 @@ stop_disable_all_firewalls() {
         cp /etc/iptables/rules.v6 /etc/iptables/rules.v6.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null
     fi
     
-    # Create empty rules (ACCEPT all)
+    # Tạo các rule trống (ACCEPT tất cả)
     mkdir -p /etc/iptables 2>/dev/null
     cat > /etc/iptables/rules.v4 << 'EOF'
 *filter
@@ -786,23 +786,23 @@ EOF
     cp /etc/iptables/rules.v4 /etc/iptables/rules.v6 2>/dev/null
     
     echo ""
-    print_info "Result:"
-    print_info "  - Stopped: $stopped_count services"
-    print_info "  - Disabled: $disabled_count services"
-    print_info "  - Old rules backed up"
+    print_info "Kết quả:"
+    print_info "  - Đã dừng: $stopped_count service"
+    print_info "  - Đã tắt: $disabled_count service"
+    print_info "  - Đã sao lưu các rule cũ"
     echo ""
-    print_warn "VPS has no firewall protection!"
-    print_info "Use menu '2. Start/Enable firewall' to re-enable."
+    print_warn "VPS hiện KHÔNG có firewall bảo vệ!"
+    print_info "Sử dụng Menu '2. Bật/Kích hoạt firewall' để bật lại."
     echo ""
-    echo -n "Press Enter to continue..."
+    echo -n "Nhấn Enter để tiếp tục..."
     read -r
 }
 
 # ===== BẬT LẠI FIREWALL ĐÃ TẮT =====
 enable_firewall_autostart() {
     echo ""
-    echo -e "${CYAN}Select firewall to START/ENABLE:${NC}"
-    print_info "Only showing installed firewalls"
+    echo -e "${CYAN}Chọn firewall để BẬT/KÍCH HOẠT:${NC}"
+    print_info "Chỉ hiển thị các firewall đã cài đặt"
     echo ""
     
     local idx=1
@@ -811,28 +811,19 @@ enable_firewall_autostart() {
     for pkg in firewalld ufw iptables nftables csf fail2ban; do
         local cmd="${FIREWALL_COMMANDS[$pkg]}"
         local service="${FIREWALL_SERVICES[$pkg]}"
-        local is_installed=false
-        
-        # Check if really installed
-        case $OS_FAMILY in
-            rhel) rpm -q "$pkg" >/dev/null 2>&1 && is_installed=true ;;
-            debian) (dpkg-query -W "$pkg" 2>/dev/null | grep -q .) && is_installed=true ;;
-            *) check_command "$cmd" && is_installed=true ;;
-        esac
-        
-        if $is_installed; then
+        if check_package "$pkg"; then
             local status_text=""
             if systemctl is-active --quiet "$service" 2>/dev/null; then
-                status_text="${GREEN}[Running]${NC}"
+                status_text="${GREEN}[Đang chạy]${NC}"
             else
-                status_text="${RED}[Stopped]${NC}"
+                status_text="${RED}[Đã dừng]${NC}"
             fi
             
             local auto_text=""
             if systemctl is-enabled --quiet "$service" 2>/dev/null; then
-                auto_text="${GREEN}[Auto: ON]${NC}"
+                auto_text="${GREEN}[Auto: BẬT]${NC}"
             else
-                auto_text="${YELLOW}[Auto: OFF]${NC}"
+                auto_text="${YELLOW}[Auto: TẮT]${NC}"
             fi
             
             echo -e "  $idx. $pkg $status_text $auto_text"
@@ -842,18 +833,18 @@ enable_firewall_autostart() {
     done
     
     if [ ${#available_services[@]} -eq 0 ]; then
-        print_error "No firewall installed!"
+        print_error "Không có firewall nào được cài đặt!"
         echo ""
-        echo -n "Press Enter to continue..."
+        echo -n "Nhấn Enter để tiếp tục..."
         read -r
         return 0
     fi
     
     echo ""
-    echo "  A. Enable ALL firewalls"
-    echo "  0. Back"
+    echo "  A. Bật TẤT CẢ firewall"
+    echo "  0. Quay lại"
     echo ""
-    echo -n "Select: "
+    echo -n "Chọn: "
     read -r choice
     
     if [ "$choice" = "0" ] || [ -z "$choice" ]; then
@@ -861,7 +852,7 @@ enable_firewall_autostart() {
     fi
     
     if [ "$choice" = "A" ] || [ "$choice" = "a" ]; then
-        print_info "Enabling all firewalls..."
+        print_info "Đang bật tất cả firewall..."
         for item in "${available_services[@]}"; do
             local service="${item%%:*}"
             local pkg="${item##*:}"
@@ -871,13 +862,13 @@ enable_firewall_autostart() {
             systemctl start "$service" 2>/dev/null
             
             if systemctl is-active --quiet "$service" 2>/dev/null; then
-                print_info "$pkg: Started and running"
+                print_info "$pkg: Đã khởi động và đang chạy"
             else
-                print_warn "$pkg: Enabled but failed to start"
+                print_warn "$pkg: Đã bật nhưng không thể khởi động"
             fi
         done
         echo ""
-        echo -n "Press Enter to continue..."
+        echo -n "Nhấn Enter để tiếp tục..."
         read -r
         return 0
     fi
@@ -887,44 +878,44 @@ enable_firewall_autostart() {
         local service="${selected%%:*}"
         local pkg="${selected##*:}"
         
-        print_info "Starting $pkg..."
+        print_info "Đang khởi động $pkg..."
         
         systemctl unmask "$service" 2>/dev/null
         systemctl enable "$service" 2>/dev/null
         systemctl start "$service" 2>/dev/null
         
         if systemctl is-active --quiet "$service" 2>/dev/null; then
-            print_info "$pkg is now running!"
+            print_info "$pkg hiện đang hoạt động!"
         else
-            print_warn "$pkg enabled but failed to start."
-            print_info "Check: systemctl status $service"
+            print_warn "$pkg đã bật nhưng không thể khởi động."
+            print_info "Kiểm tra bằng lệnh: systemctl status $service"
         fi
         
-        # For iptables, offer to restore rules
+        # Với iptables, đề nghị khôi phục rules
         if [ "$pkg" = "iptables" ]; then
             local latest_backup=$(ls -t /etc/iptables/rules.v4.backup.* 2>/dev/null | head -1)
             if [ -n "$latest_backup" ]; then
-                echo -n "Backup rules found. Restore? (y/N): "
+                echo -n "Tìm thấy bản sao lưu (backup) rules. Khôi phục? (y/N): "
                 read -r restore
                 if [[ "$restore" =~ ^[Yy]$ ]]; then
                     iptables-restore < "$latest_backup" 2>/dev/null
-                    print_info "Rules restored from backup."
+                    print_info "Rules đã được khôi phục từ bản sao lưu."
                 fi
             fi
         fi
         echo ""
-        echo -n "Press Enter to continue..."
+        echo -n "Nhấn Enter để tiếp tục..."
         read -r
     else
-        print_error "Invalid selection!"
+        print_error "Lựa chọn không hợp lệ!"
     fi
 }
 
 # ===== GỠ FIREWALL ĐƯỢC CHỌN =====
 remove_selected_firewalls() {
     echo ""
-    echo -e "${CYAN}Select firewall to UNINSTALL:${NC}"
-    print_warn "Only showing installed firewalls"
+    echo -e "${CYAN}Chọn firewall muốn GỠ CÀI ĐẶT:${NC}"
+    print_warn "Chỉ hiển thị các firewall đã cài đặt"
     echo ""
     
     local idx=1
@@ -939,17 +930,17 @@ remove_selected_firewalls() {
     done
     
     if [ ${#available_firewalls[@]} -eq 0 ]; then
-        print_error "No firewall installed!"
+        print_error "Không có firewall nào được cài đặt!"
         echo ""
-        echo -n "Press Enter to continue..."
+        echo -n "Nhấn Enter để tiếp tục..."
         read -r
         return 0
     fi
     
-    echo -e "  ${RED}A.${NC} Uninstall ALL"
-    echo "  0. Back"
+    echo -e "  ${RED}A.${NC} Gỡ cài đặt TẤT CẢ"
+    echo "  0. Quay lại"
     echo ""
-    echo -n "Select: "
+    echo -n "Chọn: "
     read -r choice
     
     if [ "$choice" = "0" ] || [ -z "$choice" ]; then
@@ -957,11 +948,11 @@ remove_selected_firewalls() {
     fi
     
     if [ "$choice" = "A" ] || [ "$choice" = "a" ]; then
-        print_warn "You are about to uninstall ALL firewalls!"
-        echo -n "Type 'yes' to confirm: "
+        print_warn "Bạn chuẩn bị gỡ cài đặt TẤT CẢ các firewall!"
+        echo -n "Gõ 'yes' để xác nhận: "
         read -r confirm
         if [ "$confirm" != "yes" ]; then
-            print_info "Cancelled."
+            print_info "Đã hủy bỏ."
             return 0
         fi
         
@@ -969,8 +960,8 @@ remove_selected_firewalls() {
             remove_single_firewall "$pkg"
         done
         
-        # Deep clean any remaining rules (like disable_firewalls.sh does)
-        print_info "Performing final deep cleanup..."
+        # Deep clean bất kỳ rule nào còn lại (giống disable_firewalls.sh)
+        print_info "Đang thực hiện dọn dẹp sâu (deep cleanup) lần cuối..."
         if check_command iptables; then
             iptables -P INPUT ACCEPT
             iptables -P FORWARD ACCEPT
@@ -991,28 +982,28 @@ remove_selected_firewalls() {
             nft flush ruleset 2>/dev/null
         fi
         
-        print_info "All firewalls uninstalled and rules cleared!"
+        print_info "Tất cả firewall đã được gỡ bỏ và các rule đã được xóa sạch!"
         echo ""
-        echo -n "Press Enter to continue..."
+        echo -n "Nhấn Enter để tiếp tục..."
         read -r
         return 0
     fi
     
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$idx" ]; then
         local selected="${available_firewalls[$((choice-1))]}"
-        print_warn "You are about to uninstall: $selected"
-        echo -n "Confirm? (y/N): "
+        print_warn "Bạn chuẩn bị gỡ cài đặt: $selected"
+        echo -n "Xác nhận? (y/N): "
         read -r confirm
         if [[ "$confirm" =~ ^[Yy]$ ]]; then
             remove_single_firewall "$selected"
             echo ""
-            echo -n "Press Enter to continue..."
+            echo -n "Nhấn Enter để tiếp tục..."
             read -r
         else
-            print_info "Cancelled."
+            print_info "Đã hủy bỏ."
         fi
     else
-        print_error "Invalid selection!"
+        print_error "Lựa chọn không hợp lệ!"
     fi
 }
 
@@ -1109,14 +1100,14 @@ firewall_management_menu() {
         list_installed_firewalls
         
         echo -e "${WHITE}╔══════════════════════════════════════════════════╗${NC}"
-        echo -e "${WHITE}║${NC}          ${CYAN}FIREWALL MANAGEMENT${NC}                     ${WHITE}║${NC}"
+        echo -e "${WHITE}║${NC}          ${CYAN}QUẢN LÝ FIREWALL${NC}                        ${WHITE}║${NC}"
         echo -e "${WHITE}╠══════════════════════════════════════════════════╣${NC}"
-        echo -e "${WHITE}║${NC}  ${YELLOW}1.${NC} Stop all firewalls (keep installed)       ${WHITE}║${NC}"
-        echo -e "${WHITE}║${NC}  ${GREEN}2.${NC} Start/Enable firewall                     ${WHITE}║${NC}"
-        echo -e "${WHITE}║${NC}  ${RED}3.${NC} Uninstall firewall (select)               ${WHITE}║${NC}"
-        echo -e "${WHITE}║${NC}  ${GREEN}4.${NC} Install iptables                          ${WHITE}║${NC}"
+        echo -e "${WHITE}║${NC}  ${YELLOW}1.${NC} Dừng tất cả firewall (giữ lại package)    ${WHITE}║${NC}"
+        echo -e "${WHITE}║${NC}  ${GREEN}2.${NC} Bật/Kích hoạt firewall                    ${WHITE}║${NC}"
+        echo -e "${WHITE}║${NC}  ${RED}3.${NC} Gỡ cài đặt firewall (tùy chọn)            ${WHITE}║${NC}"
+        echo -e "${WHITE}║${NC}  ${GREEN}4.${NC} Cài đặt iptables                          ${WHITE}║${NC}"
         echo -e "${WHITE}╠──────────────────────────────────────────────────╣${NC}"
-        echo -e "${WHITE}║${NC}  ${BLUE}0.${NC} Back to main menu                         ${WHITE}║${NC}"
+        echo -e "${WHITE}║${NC}  ${BLUE}0.${NC} Quay lại Menu chính                       ${WHITE}║${NC}"
         echo -e "${WHITE}╚══════════════════════════════════════════════════╝${NC}"
         echo ""
         echo -n "Select [0-4]: "
@@ -1405,25 +1396,25 @@ show_menu() {
     local kernel_short=$(uname -r | head -c 20)
     
     echo -e "${WHITE}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${WHITE}║${NC}       ${MAGENTA}FIREWALL MANAGER${NC} ${CYAN}v$SCRIPT_VERSION${NC}               ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}       ${MAGENTA}QUẢN LÝ FIREWALL${NC} ${CYAN}v$SCRIPT_VERSION${NC}               ${WHITE}║${NC}"
     echo -e "${WHITE}╠══════════════════════════════════════════════════╣${NC}"
     printf "${WHITE}║${NC}  ${GREEN}OS:${NC} %-30s ${GREEN}Kernel:${NC} %-10s ${WHITE}║${NC}\n" "$os_short" "$kernel_short"
     echo -e "${WHITE}╠══════════════════════════════════════════════════╣${NC}"
     echo -e "${WHITE}║${NC}  ${CYAN}CLOUDFLARE${NC}                                     ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${GREEN}1.${NC} Allow Cloudflare IPs (block others)        ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${GREEN}2.${NC} Block all Cloudflare IPs                   ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}1.${NC} Cho phép Cloudflare IPs (chặn các IP khác) ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}2.${NC} Chặn tất cả Cloudflare IPs                 ${WHITE}║${NC}"
     echo -e "${WHITE}╠──────────────────────────────────────────────────╣${NC}"
-    echo -e "${WHITE}║${NC}  ${CYAN}RULES MANAGEMENT${NC}                               ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${GREEN}3.${NC} Add custom IP/subnet                       ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${GREEN}4.${NC} Allow custom ports                         ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${GREEN}5.${NC} View current rules                         ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${GREEN}6.${NC} Remove all rules (open all ports)          ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${CYAN}QUẢN LÝ RULES${NC}                                  ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}3.${NC} Thêm IP/subnet tùy chỉnh                    ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}4.${NC} Mở cổng (port) tùy chỉnh                    ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}5.${NC} Xem các rules hiện tại                      ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}6.${NC} Xóa tất cả rules (mở tất cả các cổng)       ${WHITE}║${NC}"
     echo -e "${WHITE}╠──────────────────────────────────────────────────╣${NC}"
-    echo -e "${WHITE}║${NC}  ${CYAN}SYSTEM${NC}                                         ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${MAGENTA}7.${NC} Firewall Management >>>                     ${WHITE}║${NC}"
-    echo -e "${WHITE}║${NC}  ${GREEN}8.${NC} Clear connections on port                  ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${CYAN}HỆ THỐNG${NC}                                       ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${MAGENTA}7.${NC} Quản lý dịch vụ Firewall >>>                ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${GREEN}8.${NC} Xóa kết nối (clear connections) trên cổng   ${WHITE}║${NC}"
     echo -e "${WHITE}╠──────────────────────────────────────────────────╣${NC}"
-    echo -e "${WHITE}║${NC}  ${RED}0.${NC} Exit                                        ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}  ${RED}0.${NC} Thoát                                       ${WHITE}║${NC}"
     echo -e "${WHITE}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -1437,11 +1428,11 @@ main() {
     clear
     echo ""
     echo -e "${WHITE}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${WHITE}║${NC}       ${MAGENTA}FIREWALL MANAGER${NC} ${CYAN}v$SCRIPT_VERSION${NC}               ${WHITE}║${NC}"
+    echo -e "${WHITE}║${NC}       ${MAGENTA}QUẢN LÝ FIREWALL${NC} ${CYAN}v$SCRIPT_VERSION${NC}               ${WHITE}║${NC}"
     echo -e "${WHITE}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
-    print_info "OS: $OS_NAME"
-    print_info "Kernel: $(uname -r)"
+    print_info "Hệ điều hành (OS): $OS_NAME"
+    print_info "Nhân (Kernel): $(uname -r)"
     echo ""
     
     list_installed_firewalls
