@@ -335,53 +335,10 @@ list_installed_firewalls() {
     INSTALLED_FIREWALLS=()
     
     for pkg in firewalld ufw iptables nftables csf fail2ban; do
-        local cmd="${FIREWALL_COMMANDS[$pkg]}"
-        local service="${FIREWALL_SERVICES[$pkg]}"
-        local is_installed=false
-        
-        # Kiểm tra package thực sự được cài đặt (không chỉ command)
-        case $OS_FAMILY in
-            rhel)
-                case $pkg in
-                    iptables)
-                        rpm -q iptables >/dev/null 2>&1 && is_installed=true
-                        ;;
-                    nftables)
-                        rpm -q nftables >/dev/null 2>&1 && is_installed=true
-                        ;;
-                    firewalld)
-                        rpm -q firewalld >/dev/null 2>&1 && is_installed=true
-                        ;;
-                    *)
-                        rpm -q "$pkg" >/dev/null 2>&1 && is_installed=true
-                        ;;
-                esac
-                ;;
-            debian)
-                case $pkg in
-                    iptables)
-                        (dpkg-query -W iptables 2>/dev/null | grep -q .) && is_installed=true
-                        ;;
-                    nftables)
-                        (dpkg-query -W nftables 2>/dev/null | grep -q .) && is_installed=true
-                        ;;
-                    firewalld)
-                        (dpkg-query -W firewalld 2>/dev/null | grep -q .) && is_installed=true
-                        ;;
-                    ufw)
-                        (dpkg-query -W ufw 2>/dev/null | grep -q .) && is_installed=true
-                        ;;
-                    *)
-                        (dpkg-query -W "$pkg" 2>/dev/null | grep -q .) && is_installed=true
-                        ;;
-                esac
-                ;;
-            *)
-                check_command "$cmd" && is_installed=true
-                ;;
-        esac
-        
-        if $is_installed; then
+        if check_package "$pkg"; then
+            local cmd="${FIREWALL_COMMANDS[$pkg]}"
+            local service="${FIREWALL_SERVICES[$pkg]}"
+            
             found=true
             INSTALLED_FIREWALLS+=("$pkg")
             
@@ -438,7 +395,7 @@ list_installed_firewalls() {
                 fi
             fi
             
-            # Print with fixed width (accounting for color codes)
+            # Print with fixed width
             printf "${WHITE}║${NC} %-14s " "$pkg"
             printf "%-21b " "$status"
             printf "%-17b " "$autostart"
@@ -973,33 +930,8 @@ remove_selected_firewalls() {
     local idx=1
     local available_firewalls=()
     
-    # Check if package is really installed
     for pkg in firewalld ufw iptables nftables csf fail2ban; do
-        local is_installed=false
-        
-        case $OS_FAMILY in
-            rhel)
-                case $pkg in
-                    iptables) rpm -q iptables >/dev/null 2>&1 && is_installed=true ;;
-                    nftables) rpm -q nftables >/dev/null 2>&1 && is_installed=true ;;
-                    *) rpm -q "$pkg" >/dev/null 2>&1 && is_installed=true ;;
-                esac
-                ;;
-            debian)
-                case $pkg in
-                    iptables) (dpkg-query -W iptables 2>/dev/null | grep -q .) && is_installed=true ;;
-                    nftables) (dpkg-query -W nftables 2>/dev/null | grep -q .) && is_installed=true ;;
-                    ufw) (dpkg-query -W ufw 2>/dev/null | grep -q .) && is_installed=true ;;
-                    *) (dpkg-query -W "$pkg" 2>/dev/null | grep -q .) && is_installed=true ;;
-                esac
-                ;;
-            *)
-                local cmd="${FIREWALL_COMMANDS[$pkg]}"
-                check_command "$cmd" && is_installed=true
-                ;;
-        esac
-        
-        if $is_installed; then
+        if check_package "$pkg"; then
             echo -e "  ${GREEN}$idx.${NC} $pkg"
             available_firewalls+=("$pkg")
             ((idx++))
@@ -1036,7 +968,30 @@ remove_selected_firewalls() {
         for pkg in "${available_firewalls[@]}"; do
             remove_single_firewall "$pkg"
         done
-        print_info "All firewalls uninstalled!"
+        
+        # Deep clean any remaining rules (like disable_firewalls.sh does)
+        print_info "Performing final deep cleanup..."
+        if check_command iptables; then
+            iptables -P INPUT ACCEPT
+            iptables -P FORWARD ACCEPT
+            iptables -P OUTPUT ACCEPT
+            iptables -F
+            iptables -X
+            iptables -t nat -F 2>/dev/null
+            iptables -t nat -X 2>/dev/null
+        fi
+        if check_command ip6tables; then
+            ip6tables -P INPUT ACCEPT
+            ip6tables -P FORWARD ACCEPT
+            ip6tables -P OUTPUT ACCEPT
+            ip6tables -F
+            ip6tables -X
+        fi
+        if check_command nft; then
+            nft flush ruleset 2>/dev/null
+        fi
+        
+        print_info "All firewalls uninstalled and rules cleared!"
         echo ""
         echo -n "Press Enter to continue..."
         read -r
@@ -1066,98 +1021,77 @@ remove_single_firewall() {
     local pkg=$1
     local service="${FIREWALL_SERVICES[$pkg]}"
     
-    print_info "Removing $pkg..."
+    print_info "Deep removing $pkg..."
     
-    # Stop service
+    # 1. Stop and Disable service
     systemctl stop "$service" 2>/dev/null
     systemctl disable "$service" 2>/dev/null
+    systemctl mask "$service" 2>/dev/null
     
+    # 2. Package manager removal
+    case $OS_FAMILY in
+        rhel)
+            if check_command dnf; then
+                dnf remove -y "$pkg" >/dev/null 2>&1
+                [ "$pkg" = "iptables" ] && dnf remove -y iptables-services >/dev/null 2>&1
+            else
+                yum remove -y "$pkg" >/dev/null 2>&1
+                [ "$pkg" = "iptables" ] && yum remove -y iptables-services >/dev/null 2>&1
+            fi
+            ;;
+        debian)
+            # Dùng purge và dpkg --purge để dọn sạch dấu vết cấu hình
+            apt-get remove --purge -y "$pkg" >/dev/null 2>&1
+            dpkg --purge "$pkg" 2>/dev/null
+            [ "$pkg" = "iptables" ] && apt-get remove --purge -y iptables-persistent netfilter-persistent >/dev/null 2>&1
+            apt-get autoremove -y >/dev/null 2>&1
+            ;;
+        *)
+            remove_package "$pkg" "$service"
+            ;;
+    esac
+    
+    # 3. Manual cleanup of residual files/rules
     case $pkg in
         firewalld)
-            case $OS_FAMILY in
-                rhel) 
-                    if check_command dnf; then
-                        dnf remove -y firewalld >/dev/null 2>&1
-                    else
-                        yum remove -y firewalld >/dev/null 2>&1
-                    fi
-                    ;;
-                debian) apt-get remove --purge -y firewalld >/dev/null 2>&1 ;;
-            esac
+            rm -rf /etc/firewalld/ 2>/dev/null
             ;;
         ufw)
-            apt-get remove --purge -y ufw >/dev/null 2>&1
+            rm -rf /etc/ufw/ 2>/dev/null
+            rm -rf /lib/ufw/ 2>/dev/null
             ;;
         iptables)
-            case $OS_FAMILY in
-                rhel)
-                    if check_command dnf; then
-                        dnf remove -y iptables-services >/dev/null 2>&1
-                    else
-                        yum remove -y iptables-services >/dev/null 2>&1
-                    fi
-                    ;;
-                debian)
-                    apt-get remove --purge -y iptables-persistent netfilter-persistent >/dev/null 2>&1
-                    ;;
-            esac
-            # Xóa rules
             if check_command iptables; then
                 iptables -F && iptables -X
                 iptables -P INPUT ACCEPT
                 iptables -P FORWARD ACCEPT
                 iptables -P OUTPUT ACCEPT
             fi
-            if check_command ip6tables; then
-                ip6tables -F && ip6tables -X
-                ip6tables -P INPUT ACCEPT
-                ip6tables -P FORWARD ACCEPT
-                ip6tables -P OUTPUT ACCEPT
-            fi
             rm -f /etc/iptables/rules.v4 /etc/iptables/rules.v6 2>/dev/null
             rm -f /etc/sysconfig/iptables /etc/sysconfig/ip6tables 2>/dev/null
             ;;
         nftables)
             nft flush ruleset 2>/dev/null
-            case $OS_FAMILY in
-                rhel)
-                    if check_command dnf; then
-                        dnf remove -y nftables >/dev/null 2>&1
-                    else
-                        yum remove -y nftables >/dev/null 2>&1
-                    fi
-                    ;;
-                debian) apt-get remove --purge -y nftables >/dev/null 2>&1 ;;
-            esac
+            rm -f /etc/nftables.conf 2>/dev/null
             ;;
         csf)
             if [ -x /usr/sbin/csf ]; then
                 /usr/sbin/csf -x 2>/dev/null
-                if [ -f /etc/csf/uninstall.sh ]; then
-                    sh /etc/csf/uninstall.sh 2>/dev/null
-                fi
+            fi
+            if [ -f /etc/csf/uninstall.sh ]; then
+                sh /etc/csf/uninstall.sh 2>/dev/null
+            else
+                rm -rf /etc/csf/ 2>/dev/null
+                rm -f /usr/sbin/csf /usr/sbin/lfd 2>/dev/null
             fi
             ;;
         fail2ban)
-            case $OS_FAMILY in
-                rhel)
-                    if check_command dnf; then
-                        dnf remove -y fail2ban >/dev/null 2>&1
-                    else
-                        yum remove -y fail2ban >/dev/null 2>&1
-                    fi
-                    ;;
-                debian) apt-get remove --purge -y fail2ban >/dev/null 2>&1 ;;
-            esac
+            rm -rf /etc/fail2ban/ 2>/dev/null
+            rm -rf /var/lib/fail2ban/ 2>/dev/null
             ;;
     esac
     
-    # Cleanup
-    case $OS_FAMILY in
-        debian) apt-get autoremove -y >/dev/null 2>&1 ;;
-    esac
-    
-    print_info "$pkg removed successfully!"
+    print_info "$pkg removed and cleaned up."
 }
 
 # ===== MENU QUẢN LÝ FIREWALL =====
