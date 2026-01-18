@@ -165,7 +165,9 @@ install_package() {
             fi
             ;;
         debian)
+            print_info "Đang cập nhật danh sách gói (apt update)..."
             apt-get update >/dev/null 2>&1
+            print_info "Đang tải và cài đặt $pkg..."
             DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null 2>&1
             ;;
         suse)
@@ -1028,21 +1030,20 @@ remove_single_firewall() {
     # 2. Package manager removal
     case $OS_FAMILY in
         rhel)
-            print_info "Đang gỡ bỏ gói $pkg bằng công cụ của hệ thống..."
+            print_info "Đang gỡ bỏ $pkg, vui lòng đợi giây lát..."
             if check_command dnf; then
-                dnf remove -y "$pkg"
-                [ "$pkg" = "iptables" ] && dnf remove -y iptables-services
+                dnf remove -y "$pkg" >/dev/null 2>&1
+                [ "$pkg" = "iptables" ] && dnf remove -y iptables-services >/dev/null 2>&1
             else
-                yum remove -y "$pkg"
-                [ "$pkg" = "iptables" ] && yum remove -y iptables-services
+                yum remove -y "$pkg" >/dev/null 2>&1
+                [ "$pkg" = "iptables" ] && yum remove -y iptables-services >/dev/null 2>&1
             fi
             ;;
         debian)
-            print_info "Đang gỡ bỏ gói $pkg (bằng apt-get purge)..."
-            # Cố gắng giải phóng khóa apt nếu cần
-            DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y "$pkg"
-            dpkg --purge "$pkg" 2>/dev/null
-            [ "$pkg" = "iptables" ] && DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y iptables-persistent netfilter-persistent
+            print_info "Đang gỡ bỏ $pkg và dọn dẹp cấu hình, vui lòng đợi..."
+            DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y "$pkg" >/dev/null 2>&1
+            dpkg --purge "$pkg" >/dev/null 2>&1
+            [ "$pkg" = "iptables" ] && DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y iptables-persistent netfilter-persistent >/dev/null 2>&1
             apt-get autoremove -y >/dev/null 2>&1
             ;;
         *)
