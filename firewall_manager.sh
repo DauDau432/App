@@ -114,8 +114,11 @@ check_package() {
         rhel)
             # Sử dụng rpm -q cho RHEL-based distros
             rpm -q "$pkg" >/dev/null 2>&1 && return 0
-            # Thử với command nếu rpm không tìm thấy
-            command -v "$pkg" >/dev/null 2>&1 && return 0
+            # Chỉ kiểm tra command cho các gói không phải core firewall pkg
+            case $pkg in
+                firewalld|iptables|nftables) ;;
+                *) command -v "$pkg" >/dev/null 2>&1 && return 0 ;;
+            esac
             return 1
             ;;
         debian)
@@ -125,7 +128,7 @@ check_package() {
             case $pkg in
                 iptables)
                     dpkg-query -W -f='${Status}' "iptables-persistent" 2>/dev/null | grep -q "install ok installed" && return 0
-                    command -v iptables >/dev/null 2>&1 && return 0
+                    # Không kiểm tra 'command -v iptables' ở đây vì nó luôn có trên Linux
                     ;;
             esac
             return 1
@@ -381,15 +384,20 @@ list_installed_firewalls() {
                     autostart="${RED}TẮT${NC}"
                 fi
             else
-                # Special check for iptables without service
-                if [ "$pkg" = "iptables" ] && check_command iptables; then
+                # Kiểm tra đặc biệt cho iptables (không có service file)
+                if [ "$pkg" = "iptables" ]; then
                     local rule_count=$(iptables -L -n 2>/dev/null | wc -l)
                     if [ "$rule_count" -gt 8 ]; then
-                        status="${GREEN}Hoạt động${NC}"
+                        status="${GREEN}Hoạt động (Chỉ rules)${NC}"
+                        autostart="${YELLOW}Thủ công${NC}"
                     else
+                        # Nếu không có rules và không có package quản lý thì ẩn luôn
+                        if ! check_package "iptables-persistent" && ! check_package "iptables-services"; then
+                             continue
+                        fi
                         status="${YELLOW}Trống${NC}"
+                        autostart="${YELLOW}Thủ công${NC}"
                     fi
-                    autostart="${YELLOW}Thủ công${NC}"
                 fi
             fi
             
@@ -1020,19 +1028,21 @@ remove_single_firewall() {
     # 2. Package manager removal
     case $OS_FAMILY in
         rhel)
+            print_info "Đang gỡ bỏ gói $pkg bằng công cụ của hệ thống..."
             if check_command dnf; then
-                dnf remove -y "$pkg" >/dev/null 2>&1
-                [ "$pkg" = "iptables" ] && dnf remove -y iptables-services >/dev/null 2>&1
+                dnf remove -y "$pkg"
+                [ "$pkg" = "iptables" ] && dnf remove -y iptables-services
             else
-                yum remove -y "$pkg" >/dev/null 2>&1
-                [ "$pkg" = "iptables" ] && yum remove -y iptables-services >/dev/null 2>&1
+                yum remove -y "$pkg"
+                [ "$pkg" = "iptables" ] && yum remove -y iptables-services
             fi
             ;;
         debian)
-            # Dùng purge và dpkg --purge để dọn sạch dấu vết cấu hình
-            apt-get remove --purge -y "$pkg" >/dev/null 2>&1
+            print_info "Đang gỡ bỏ gói $pkg (bằng apt-get purge)..."
+            # Cố gắng giải phóng khóa apt nếu cần
+            DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y "$pkg"
             dpkg --purge "$pkg" 2>/dev/null
-            [ "$pkg" = "iptables" ] && apt-get remove --purge -y iptables-persistent netfilter-persistent >/dev/null 2>&1
+            [ "$pkg" = "iptables" ] && DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y iptables-persistent netfilter-persistent
             apt-get autoremove -y >/dev/null 2>&1
             ;;
         *)
@@ -1051,10 +1061,23 @@ remove_single_firewall() {
             ;;
         iptables)
             if check_command iptables; then
-                iptables -F && iptables -X
+                print_info "Đang xả (flush) toàn bộ các bảng rules iptables..."
+                for table in filter nat mangle raw security; do
+                    iptables -t "$table" -F 2>/dev/null
+                    iptables -t "$table" -X 2>/dev/null
+                done
                 iptables -P INPUT ACCEPT
                 iptables -P FORWARD ACCEPT
                 iptables -P OUTPUT ACCEPT
+            fi
+            if check_command ip6tables; then
+                for table in filter nat mangle raw security; do
+                    ip6tables -t "$table" -F 2>/dev/null
+                    ip6tables -t "$table" -X 2>/dev/null
+                done
+                ip6tables -P INPUT ACCEPT
+                ip6tables -P FORWARD ACCEPT
+                ip6tables -P OUTPUT ACCEPT
             fi
             rm -f /etc/iptables/rules.v4 /etc/iptables/rules.v6 2>/dev/null
             rm -f /etc/sysconfig/iptables /etc/sysconfig/ip6tables 2>/dev/null
