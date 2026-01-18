@@ -82,7 +82,7 @@ detect_os() {
         OS="debian"
         OS_NAME="Debian $(cat /etc/debian_version)"
     else
-        print_error "Cannot detect operating system!"
+        print_error "Không thể phát hiện hệ điều hành (OS)!"
         exit 1
     fi
     
@@ -151,7 +151,7 @@ check_command() {
 # ===== CÀI ĐẶT GÓI =====
 install_package() {
     local pkg=$1
-    print_info "Installing $pkg..."
+    print_info "Đang cài đặt $pkg..."
     
     case $OS_FAMILY in
         rhel)
@@ -172,7 +172,7 @@ install_package() {
             pacman -S --noconfirm "$pkg" >/dev/null 2>&1
             ;;
         *)
-            print_error "Auto installation not supported for this OS."
+            print_error "Không hỗ trợ tự động cài đặt cho hệ điều hành (OS) này."
             return 1
             ;;
     esac
@@ -181,7 +181,7 @@ install_package() {
         print_info "$pkg đã được cài đặt thành công."
         return 0
     else
-        print_error "Failed to install $pkg."
+        print_error "Không thể cài đặt $pkg."
         return 1
     fi
 }
@@ -193,17 +193,17 @@ remove_package() {
     
     # Kiểm tra gói hoặc command tồn tại
     if ! check_package "$pkg" && ! check_command "$pkg"; then
-        print_error "Package $pkg is not installed."
+        print_error "Package $pkg chưa được cài đặt."
         return 1
     fi
     
-    print_info "Removing $pkg..."
+    print_info "Đang gỡ bỏ $pkg..."
     
     # Dừng service nếu đang chạy
     if systemctl is-active --quiet "$service_name" 2>/dev/null; then
         systemctl stop "$service_name" 2>/dev/null
         systemctl disable "$service_name" 2>/dev/null
-        print_info "Stopped $service_name"
+        print_info "Đã dừng $service_name"
     fi
     
     case $OS_FAMILY in
@@ -226,7 +226,7 @@ remove_package() {
             ;;
     esac
     
-    print_info "$pkg removed."
+    print_info "Đã gỡ bỏ $pkg."
 }
 
 # ===== KIỂM TRA IPTABLES =====
@@ -243,7 +243,7 @@ check_iptables() {
 # ===== ĐẢM BẢO CONNTRACK =====
 ensure_conntrack() {
     if ! check_command conntrack; then
-        print_info "Installing conntrack..."
+        print_info "Đang cài đặt conntrack..."
         case $OS_FAMILY in
             rhel)
                 install_package conntrack-tools
@@ -291,10 +291,8 @@ save_iptables_rules() {
     
     # Cho RHEL-based với iptables-services
     if [ "$OS_FAMILY" = "rhel" ]; then
-        if [ -f /etc/sysconfig/iptables ]; then
+        if [ -d /etc/sysconfig ]; then
             iptables-save > /etc/sysconfig/iptables 2>/dev/null
-        fi
-        if [ -f /etc/sysconfig/ip6tables ]; then
             ip6tables-save > /etc/sysconfig/ip6tables 2>/dev/null
         fi
     fi
@@ -1012,7 +1010,7 @@ remove_single_firewall() {
     local pkg=$1
     local service="${FIREWALL_SERVICES[$pkg]}"
     
-    print_info "Deep removing $pkg..."
+    print_info "Đang thực hiện gỡ sạch $pkg..."
     
     # 1. Stop and Disable service
     systemctl stop "$service" 2>/dev/null
@@ -1082,7 +1080,7 @@ remove_single_firewall() {
             ;;
     esac
     
-    print_info "$pkg removed and cleaned up."
+    print_info "Đã gỡ bỏ và dọn sạch $pkg."
 }
 
 # ===== MENU QUẢN LÝ FIREWALL =====
@@ -1437,12 +1435,12 @@ main() {
     
     list_installed_firewalls
     
-    echo -n "Press Enter to continue..."
+    echo -n "Nhấn Enter để tiếp tục..."
     read -r
     
     while true; do
         show_menu
-        echo -n "Select [0-8]: "
+        echo -n "Chọn [0-8]: "
         read -r choice
         echo ""
         
@@ -1457,11 +1455,11 @@ main() {
             8) clear_port_connections ;;
             0) 
                 clear
-                print_info "Goodbye!"
+                print_info "Tạm biệt!"
                 exit 0 
                 ;;
             *)
-                print_error "Invalid selection!"
+                print_error "Lựa chọn không hợp lệ!"
                 sleep 1
                 ;;
         esac
