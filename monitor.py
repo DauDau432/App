@@ -3,6 +3,7 @@
 """
 Universal HTTP access-log RPS monitor
 Hỗ trợ: aaPanel, Nginx, Apache, LiteSpeed, OpenLiteSpeed, CyberPanel, DirectAdmin, cPanel
+        Tengine, H2O, Lighttpd, Cherokee, Tomcat, IIS
 
 Mặc định:
   - In tổng quan kết nối hệ thống (đọc trực tiếp /proc/net hoặc ss)
@@ -16,12 +17,14 @@ Tùy chọn:
   - --start-at-begin    : đọc log từ đầu (mặc định từ cuối)
   - --show-zero         : hiển thị domain RPS=0
   - --no-domains        : tắt bảng miền
+  - --show-empty        : hiển thị các section không có dữ liệu
 
 Tối ưu:
   - Đọc trực tiếp /proc/net/* (không cần netstat/ss)
   - Pre-compiled regex patterns
   - Thread pool cho I/O operations
   - Tương thích mọi Linux distro
+  - Tự động ẩn section không có dữ liệu (gọn màn hình)
 
 Hỗ trợ Control Panel:
   - aaPanel (BT Panel)
@@ -30,6 +33,7 @@ Hỗ trợ Control Panel:
   - CyberPanel
   - Plesk
   - VestaCP/HestiaCP
+  - CloudPanel
 
 Hỗ trợ Web Server:
   - Nginx
@@ -37,6 +41,12 @@ Hỗ trợ Web Server:
   - LiteSpeed Enterprise
   - OpenLiteSpeed
   - Caddy
+  - Tengine (Nginx fork by Alibaba)
+  - H2O (HTTP/2 optimized)
+  - Lighttpd
+  - Cherokee
+  - Apache Tomcat
+  - IIS (Windows/WSL)
 """
 
 from __future__ import annotations
@@ -64,6 +74,12 @@ CANDIDATE_DIRS: List[str] = [
     "/var/log/nginx",                        # Default Nginx (Ubuntu/Debian/CentOS)
     "/usr/local/nginx/logs",                 # Compiled Nginx
     "/opt/nginx/logs",                       # Custom Nginx
+    "/etc/nginx/logs",                       # Alternative Nginx
+
+    # ========== Tengine (Nginx fork) ==========
+    "/usr/local/tengine/logs",               # Tengine default
+    "/var/log/tengine",                      # Tengine alternative
+    "/opt/tengine/logs",                     # Custom Tengine
 
     # ========== Apache/httpd ==========
     "/var/log/apache2",                      # Apache Ubuntu/Debian
@@ -72,14 +88,41 @@ CANDIDATE_DIRS: List[str] = [
     "/usr/local/apache2/logs",               # Compiled Apache
     "/var/log/apache",                       # Some distros
     "/opt/apache/logs",                      # Custom Apache
+    "/etc/httpd/logs",                       # Alternative Apache
 
     # ========== LiteSpeed Enterprise ==========
     "/usr/local/lsws/logs",                  # LiteSpeed main logs
     "/usr/local/lsws/admin/logs",            # LiteSpeed admin logs
 
     # ========== OpenLiteSpeed ==========
-    "/usr/local/lsws/logs",                  # OpenLiteSpeed logs (same as LS)
     "/var/log/openlitespeed",                # OpenLiteSpeed alternative
+
+    # ========== H2O ==========
+    "/var/log/h2o",                          # H2O default
+    "/usr/local/h2o/logs",                   # H2O compiled
+    "/opt/h2o/logs",                         # H2O custom
+
+    # ========== Lighttpd ==========
+    "/var/log/lighttpd",                     # Lighttpd default
+    "/usr/local/lighttpd/logs",              # Lighttpd compiled
+    "/opt/lighttpd/logs",                    # Lighttpd custom
+
+    # ========== Cherokee ==========
+    "/var/log/cherokee",                     # Cherokee default
+    "/usr/local/cherokee/logs",              # Cherokee compiled
+    "/opt/cherokee/logs",                    # Cherokee custom
+
+    # ========== Apache Tomcat ==========
+    "/var/log/tomcat",                       # Tomcat default (Ubuntu/Debian)
+    "/var/log/tomcat9",                      # Tomcat 9
+    "/var/log/tomcat10",                     # Tomcat 10
+    "/opt/tomcat/logs",                      # Tomcat custom
+    "/usr/local/tomcat/logs",                # Tomcat compiled
+    "/usr/share/tomcat/logs",                # Tomcat alternative
+
+    # ========== IIS (Windows/WSL) ==========
+    "/mnt/c/inetpub/logs/LogFiles",          # IIS on WSL
+    "/var/log/iis",                          # IIS alternative
 
     # ========== CyberPanel ==========
     "/home/*/logs",                          # CyberPanel per-user logs
@@ -132,7 +175,7 @@ THREAD_POOL_SIZE: int = 4
 # ======= Pre-compiled Patterns =======
 # Patterns để tìm file log access
 INCLUDE_GLOBS: Tuple[str, ...] = (
-    # Nginx patterns
+    # Nginx/Tengine patterns
     "*access.log*",
     "*-access.log*",
     "*_access.log*",
@@ -153,6 +196,22 @@ INCLUDE_GLOBS: Tuple[str, ...] = (
     "*-bytes_log*",
 
     # DirectAdmin patterns
+    "*.log",
+
+    # H2O patterns
+    "*h2o-access.log*",
+
+    # Lighttpd patterns
+    "*lighttpd-access.log*",
+
+    # Cherokee patterns
+    "*cherokee-access.log*",
+
+    # Tomcat patterns
+    "*localhost_access_log*.txt",
+    "*access*.log",
+
+    # IIS patterns
     "*.log",
 
     # General patterns
@@ -177,6 +236,11 @@ _EXCLUDE_PATTERNS: Tuple[re.Pattern, ...] = (
     re.compile(r"(?:^|/)ssl_error", re.IGNORECASE),
     re.compile(r"(?:^|/)suexec\.log", re.IGNORECASE),
     re.compile(r"(?:^|/)php[-_]?fpm.*\.log", re.IGNORECASE),
+
+    # Tomcat catalina/manager logs (not access logs)
+    re.compile(r"(?:^|/)catalina\..*\.log", re.IGNORECASE),
+    re.compile(r"(?:^|/)manager\..*\.log", re.IGNORECASE),
+    re.compile(r"(?:^|/)host-manager\..*\.log", re.IGNORECASE),
 
     # Exclude generic access.log without domain prefix (usually system log)
     re.compile(r"(?:^|/)access\.log$", re.IGNORECASE),
@@ -207,7 +271,13 @@ FILENAME_DOMAIN_RE: re.Pattern = re.compile(
         # DirectAdmin format: domain.access.log
         (?:\.access\.log$) |
         # Hyphenated: domain-access.log
-        (?:-access\.log(?:\.\d+)?)
+        (?:-access\.log(?:\.\d+)?) |
+        # H2O format: domain-h2o-access.log
+        (?:-h2o-access\.log(?:\.\d+)?) |
+        # Lighttpd format: domain-lighttpd-access.log
+        (?:-lighttpd-access\.log(?:\.\d+)?) |
+        # Cherokee format: domain-cherokee-access.log
+        (?:-cherokee-access\.log(?:\.\d+)?)
     )$
     """,
     re.VERBOSE
@@ -250,6 +320,10 @@ class ConnectionStats:
     syn_recv: int = 0
     source: str = "/proc"
 
+    def has_data(self) -> bool:
+        """Check if there's any connection data."""
+        return self.port_80 > 0 or self.port_443 > 0 or self.established > 0 or self.syn_recv > 0
+
 
 @dataclass
 class IPCount:
@@ -261,7 +335,7 @@ class IPCount:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     p = argparse.ArgumentParser(
-        description="Universal RPS monitor (nginx/apache/OLS) - Optimized",
+        description="Universal RPS monitor (nginx/apache/OLS/tengine/h2o/lighttpd/cherokee/tomcat) - Optimized",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("--dir", action="append", help="Thêm thư mục log (có thể lặp)")
@@ -272,6 +346,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-domains", action="store_true", help="Tắt bảng RPS theo miền")
     p.add_argument("--topip", nargs="?", const=5, type=int, help="Hiện Top IP; tùy chọn truyền ngưỡng (vd: --topip 20)")
     p.add_argument("--logfile", action="store_true", help="In danh sách file log đang theo dõi")
+    p.add_argument("--show-empty", action="store_true", help="Hiển thị các section không có dữ liệu")
     return p.parse_args()
 
 
@@ -661,11 +736,12 @@ def clear_screen() -> None:
 
 def print_banner() -> None:
     """Print application banner."""
-    print("=" * 60)
+    print("=" * 70)
     print("  Universal HTTP Access Log Monitor")
-    print("  Hỗ trợ: aaPanel, Nginx, Apache, LiteSpeed, OpenLiteSpeed")
-    print("          cPanel, DirectAdmin, CyberPanel, Plesk, VestaCP")
-    print("=" * 60)
+    print("  Hỗ trợ: Nginx, Apache, LiteSpeed, OpenLiteSpeed, Tengine, H2O")
+    print("          Lighttpd, Cherokee, Tomcat, IIS, aaPanel, cPanel, DirectAdmin")
+    print("          CyberPanel, Plesk, VestaCP, HestiaCP, CloudPanel")
+    print("=" * 70)
 
 def main() -> None:
     """Main entry point."""
@@ -675,6 +751,7 @@ def main() -> None:
     rediscover = args.rediscover
     start_at_end = not args.start_at_begin
     show_domains = not args.no_domains
+    show_empty = args.show_empty
 
     # Initialize network monitor
     net_monitor = NetworkMonitor()
@@ -739,45 +816,62 @@ def main() -> None:
 
             # 1) Connection overview
             stats = net_monitor.get_stats()
-            print(f"Tình trạng kết nối ({stats.source}):")
-            print(f"  {'Kết nối :80':<17}: {stats.port_80}")
-            print(f"  {'Kết nối :443':<17}: {stats.port_443}")
-            print(f"  {'ESTABLISHED':<17}: {stats.established}")
-            print(f"  {'SYN_RECV':<17}: {stats.syn_recv}")
+            
+            # Only show connection stats if there's data OR show_empty is enabled
+            if stats.has_data() or show_empty:
+                print(f"Tình trạng kết nối ({stats.source}):")
+                print(f"  {'Kết nối :80':<17}: {stats.port_80}")
+                print(f"  {'Kết nối :443':<17}: {stats.port_443}")
+                print(f"  {'ESTABLISHED':<17}: {stats.established}")
+                print(f"  {'SYN_RECV':<17}: {stats.syn_recv}")
 
             # 2) Domain table
             if show_domains:
-                print("\nThống kê kết nối theo miền (real-time)\n")
-                print(f"{'Domain':<32}{'RPS':>6}")
-                print("-" * 40)
                 rows = [(d, int(round(counts.get(d, 0) / interval))) for d in counts.keys()]
                 if not args.show_zero:
                     rows = [(d, r) for d, r in rows if r > 0]
                 rows.sort(key=lambda x: x[1], reverse=True)
-                shown = 0
-                for d, r in rows:
-                    name = (d[:30] + "…") if len(d) > 30 else d
-                    print(f"{name:<32}{r:>6d}")
-                    shown += 1
-                    if shown >= MAX_ROWS:
-                        break
-                if shown == 0:
-                    print("(chưa ghi nhận request mới trong khoảng đo)")
+                
+                # Only show domain table if there's data OR show_empty is enabled
+                if rows or show_empty:
+                    print("\nThống kê kết nối theo miền (real-time)\n")
+                    print(f"{'Domain':<32}{'RPS':>6}")
+                    print("-" * 40)
+                    
+                    if rows:
+                        shown = 0
+                        for d, r in rows:
+                            name = (d[:30] + "…") if len(d) > 30 else d
+                            print(f"{name:<32}{r:>6d}")
+                            shown += 1
+                            if shown >= MAX_ROWS:
+                                break
+                    else:
+                        print("(chưa ghi nhận request mới trong khoảng đo)")
 
             # 3) Top IPs
             if topip_enabled:
-                print(f"\nTop IP kết nối (ngưỡng > {topip_threshold}, tối đa {TOPIP_LIMIT} IP)")
                 top_ips = net_monitor.get_top_ips(threshold=topip_threshold, limit=TOPIP_LIMIT)
-
-                for label in ("Top IP :80", "Top IP :443", "Top IP ESTABLISHED"):
-                    print(f"\n{label}")
-                    print("-" * 40)
-                    ip_list = top_ips.get(label, [])
-                    if not ip_list:
-                        print("(không có dữ liệu đạt ngưỡng)")
-                    else:
-                        for ip_count in ip_list:
-                            print(f"  {ip_count.count:>6}  {ip_count.ip}")
+                
+                # Check if there's any data in top IPs
+                has_topip_data = any(len(ip_list) > 0 for ip_list in top_ips.values())
+                
+                # Only show Top IP section if there's data OR show_empty is enabled
+                if has_topip_data or show_empty:
+                    print(f"\nTop IP kết nối (ngưỡng > {topip_threshold}, tối đa {TOPIP_LIMIT} IP)")
+                    
+                    for label in ("Top IP :80", "Top IP :443", "Top IP ESTABLISHED"):
+                        ip_list = top_ips.get(label, [])
+                        
+                        # Only show individual category if it has data OR show_empty is enabled
+                        if ip_list or show_empty:
+                            print(f"\n{label}")
+                            print("-" * 40)
+                            if not ip_list:
+                                print("(không có dữ liệu đạt ngưỡng)")
+                            else:
+                                for ip_count in ip_list:
+                                    print(f"  {ip_count.count:>6}  {ip_count.ip}")
 
             # 4) Log file list
             if show_domains and args.logfile:
