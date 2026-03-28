@@ -3,7 +3,7 @@
 # Script tối ưu ulimit và sysctl cho Linux
 # Hỗ trợ: Ubuntu, Debian, CentOS, RHEL, Fedora, Arch Linux và các distro Linux khác
 # Tác giả: H2Cloud
-# Phiên bản: 2.0
+# Phiên bản: 2.1
 #
 
 # ================== MÀU SẮC ==================
@@ -148,7 +148,15 @@ EOF
     sysctl -w kernel.pid_max=4194303 2>/dev/null
     grep -q "kernel.pid_max" /etc/sysctl.conf 2>/dev/null || echo "kernel.pid_max = 4194303" >> /etc/sysctl.conf
 
-    # Thêm vào ~/.bashrc nếu chưa có
+    # Thêm vào /etc/profile.d/ để apply cho mọi SSH login session mới
+    cat > /etc/profile.d/ulimit.sh << 'PROFILEEOF'
+ulimit -n 1048576
+ulimit -u 4194303
+PROFILEEOF
+    chmod +x /etc/profile.d/ulimit.sh
+    echo -e "${YELLOW}[+] Đã thêm /etc/profile.d/ulimit.sh (apply cho mọi SSH session mới)${RESET}"
+
+    # Thêm vào ~/.bashrc nếu chưa có (fallback)
     if ! grep -q "ulimit -n 1048576" ~/.bashrc 2>/dev/null; then
         echo "ulimit -n 1048576" >> ~/.bashrc
         echo -e "${YELLOW}[+] Đã thêm 'ulimit -n 1048576' vào ~/.bashrc${RESET}"
@@ -223,6 +231,14 @@ EOF
         echo "ulimit -n $nofile" >> ~/.bashrc
         echo -e "${YELLOW}[+] Đã thêm 'ulimit -n $nofile' vào ~/.bashrc${RESET}"
     fi
+
+    # Thêm vào /etc/profile.d/ để apply cho mọi SSH login session mới
+    cat > /etc/profile.d/ulimit.sh << PROFILEEOF
+ulimit -n $nofile
+ulimit -u $nproc
+PROFILEEOF
+    chmod +x /etc/profile.d/ulimit.sh
+    echo -e "${YELLOW}[+] Đã thêm /etc/profile.d/ulimit.sh (apply cho mọi SSH session mới)${RESET}"
 
     if [ $HAS_SYSTEMD -eq 1 ]; then
         systemctl daemon-reexec 2>/dev/null
@@ -390,6 +406,7 @@ EOF
         sed -i '/net.ipv4.route.flush/d' /etc/sysctl.conf
         sed -i '/net.ipv4.route.max_size/d' /etc/sysctl.conf
         sed -i '/net.ipv4.tcp_fack/d' /etc/sysctl.conf
+        sed -i '/net.ipv4.tcp_tw_recycle/d' /etc/sysctl.conf
         
         # Kiểm tra và xóa tcp_congestion_control nếu không hỗ trợ
         if echo "$sysctl_output" | grep -q "tcp_congestion_control"; then
