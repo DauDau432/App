@@ -368,12 +368,12 @@ fetch_provider_models() {
   fi
 
   if [[ -n "$parsed" && "$parsed" != "[]" ]]; then
-    info "Models: lấy từ API ${BASE_URL}/models"
+    info "Models: lấy từ API ${BASE_URL}/models" >&2
     echo "$parsed"
     return 0
   fi
 
-  warn "Không lấy được models từ API — dùng danh sách mặc định"
+  warn "Không lấy được models từ API — dùng danh sách mặc định" >&2
   echo "$DEFAULT_MODELS_JSON"
 }
 
