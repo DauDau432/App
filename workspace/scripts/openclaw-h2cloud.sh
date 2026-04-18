@@ -135,7 +135,6 @@ else
 fi
 
 # 1.7 Kiểm tra cổng
-info "Kiểm tra cổng Gateway OpenClaw (mặc định 3080)..."
 for port in "${REQUIRED_PORTS[@]}"; do
   OCCUPANT=""
   if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
