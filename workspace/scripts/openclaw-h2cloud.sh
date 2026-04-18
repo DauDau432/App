@@ -450,10 +450,13 @@ else
   install_openclaw
 fi
 
+OPENCLAW_BIN_ACTIVE="$(command -v openclaw 2>/dev/null || echo 'unknown')"
 NEW_VER="$(openclaw --version 2>/dev/null | head -1 || echo 'unknown')"
 if [[ "$SHOW_OPENCLAW_VERSION_LINE" -eq 1 ]]; then
   ok "OpenClaw: $NEW_VER"
 fi
+ok "Binary active: $OPENCLAW_BIN_ACTIVE"
+ok "Version active: $NEW_VER"
 
 # 2.5 Init config nếu chưa có
 if [[ ! -f "$OPENCLAW_CONFIG" ]]; then
