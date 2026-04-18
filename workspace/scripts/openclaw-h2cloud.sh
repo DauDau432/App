@@ -144,7 +144,7 @@ for port in "${REQUIRED_PORTS[@]}"; do
   if [[ -n "$OCCUPANT" ]]; then
     flag_err "Cổng Gateway $port đang bị chiếm ($OCCUPANT)"
   else
-    ok "Cổng Gateway $port (OK)"
+    ok "Cổng Gateway $port: OK"
   fi
 done
 
