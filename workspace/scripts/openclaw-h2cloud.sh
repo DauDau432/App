@@ -305,18 +305,14 @@ else
 fi
 
 ensure_openclaw_bin() {
-  if command -v openclaw >/dev/null 2>&1; then
-    return 0
-  fi
-
   local candidate=""
   local npm_root=""
   npm_root="$(npm root -g 2>/dev/null || true)"
 
   for p in \
-    /usr/lib/node_modules/openclaw/openclaw.mjs \
+    "$npm_root/openclaw/openclaw.mjs" \
     /usr/local/lib/node_modules/openclaw/openclaw.mjs \
-    "$npm_root/openclaw/openclaw.mjs"
+    /usr/lib/node_modules/openclaw/openclaw.mjs
   do
     if [[ -n "$p" && -f "$p" ]]; then
       candidate="$p"
@@ -325,22 +321,42 @@ ensure_openclaw_bin() {
   done
 
   if [[ -n "$candidate" ]]; then
+    rm -f /usr/local/bin/openclaw 2>/dev/null || true
     ln -sf "$candidate" /usr/local/bin/openclaw
     chmod +x /usr/local/bin/openclaw 2>/dev/null || true
   fi
 
+  hash -r 2>/dev/null || true
   command -v openclaw >/dev/null 2>&1
 }
 
 install_openclaw() {
+  local latest_ver=""
+  local current_ver=""
+
+  latest_ver="$(npm view openclaw version 2>/dev/null || true)"
   npm install -g openclaw@latest --loglevel=error 2>&1 | grep -v "^npm warn" || true
   ensure_openclaw_bin || true
+  current_ver="$(openclaw --version 2>/dev/null | sed -n 's/.*\([0-9]\{4\}\.[0-9]\{1,2\}\.[0-9]\{1,2\}\).*/\1/p' | head -1 || true)"
+
   # Nếu lỗi ENOTEMPTY hoặc binary chưa lên — xóa và cài lại
   if ! openclaw --version >/dev/null 2>&1; then
     warn "Cài lần đầu thất bại — thử xóa thư mục cũ và cài lại..."
     rm -rf /usr/lib/node_modules/openclaw /usr/local/lib/node_modules/openclaw 2>/dev/null || true
     npm install -g openclaw@latest --loglevel=error 2>&1 | grep -v "^npm warn" || true
     ensure_openclaw_bin || true
+    current_ver="$(openclaw --version 2>/dev/null | sed -n 's/.*\([0-9]\{4\}\.[0-9]\{1,2\}\.[0-9]\{1,2\}\).*/\1/p' | head -1 || true)"
+  fi
+
+  if [[ -n "$latest_ver" && -n "$current_ver" && "$current_ver" != "$latest_ver" ]]; then
+    warn "OpenClaw vừa cài xong nhưng shell vẫn đang thấy bản $current_ver thay vì $latest_ver — làm mới binary rồi kiểm tra lại..."
+    ensure_openclaw_bin || true
+    current_ver="$(openclaw --version 2>/dev/null | sed -n 's/.*\([0-9]\{4\}\.[0-9]\{1,2\}\.[0-9]\{1,2\}\).*/\1/p' | head -1 || true)"
+  fi
+
+  if [[ -n "$latest_ver" && -n "$current_ver" && "$current_ver" != "$latest_ver" ]]; then
+    err "OpenClaw sau update vẫn chưa đúng version mong đợi ($current_ver != $latest_ver). Vui lòng kiểm tra PATH/npm global bin rồi chạy lại."
+    exit 1
   fi
 }
 
