@@ -142,9 +142,9 @@ for port in "${REQUIRED_PORTS[@]}"; do
     OCCUPANT="$(ss -tlnp 2>/dev/null | grep ":${port} " | awk '{print $NF}' | head -1)"
   fi
   if [[ -n "$OCCUPANT" ]]; then
-    flag_err "Cổng $port đang bị chiếm ($OCCUPANT) — vui lòng giải phóng trước khi cài"
+    flag_err "Cổng Gateway $port đang bị chiếm ($OCCUPANT)"
   else
-    ok "Cổng $port: rảnh"
+    ok "Cổng Gateway $port (OK)"
   fi
 done
 
@@ -403,6 +403,7 @@ choose_primary_model() {
 }
 
 # 2.4 Cài / update OpenClaw
+SHOW_OPENCLAW_VERSION_LINE=1
 if [[ "$ALREADY_INSTALLED" -eq 1 ]]; then
   # Hỏi có muốn update không (skip khi chạy non-interactive qua pipe)
   DO_UPDATE="yes"
@@ -410,8 +411,9 @@ if [[ "$ALREADY_INSTALLED" -eq 1 ]]; then
   INSTALLED_SEMVER="$(printf '%s' "$INSTALLED_VER" | sed -n 's/.*\([0-9]\{4\}\.[0-9]\{1,2\}\.[0-9]\{1,2\}\).*/\1/p' | head -1)"
 
   if [[ -n "$LATEST_VER" && -n "$INSTALLED_SEMVER" && "$LATEST_VER" == "$INSTALLED_SEMVER" ]]; then
-    info "OpenClaw đã là bản mới nhất: $INSTALLED_VER"
+    info "Đã là bản mới nhất: $INSTALLED_VER"
     DO_UPDATE="no"
+    SHOW_OPENCLAW_VERSION_LINE=0
   elif [[ -t 0 ]]; then
     if [[ -n "$LATEST_VER" ]]; then
       echo "OpenClaw hiện tại: $INSTALLED_VER"
@@ -425,8 +427,8 @@ if [[ "$ALREADY_INSTALLED" -eq 1 ]]; then
   if [[ "$DO_UPDATE" == "yes" ]]; then
     info "Update OpenClaw lên phiên bản mới nhất..."
     install_openclaw
-  else
-    info "Giữ nguyên OpenClaw $INSTALLED_VER"
+  elif [[ "$SHOW_OPENCLAW_VERSION_LINE" -eq 1 ]]; then
+    info "Giữ bản hiện tại: $INSTALLED_VER"
   fi
 else
   info "Cài OpenClaw..."
@@ -434,7 +436,9 @@ else
 fi
 
 NEW_VER="$(openclaw --version 2>/dev/null | head -1 || echo 'unknown')"
-ok "OpenClaw: $NEW_VER"
+if [[ "$SHOW_OPENCLAW_VERSION_LINE" -eq 1 ]]; then
+  ok "OpenClaw: $NEW_VER"
+fi
 
 # 2.5 Init config nếu chưa có
 if [[ ! -f "$OPENCLAW_CONFIG" ]]; then
