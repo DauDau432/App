@@ -25,7 +25,7 @@ DEFAULT_MODELS_JSON='[
   {"id":"cx/gpt-5.3-codex-xhigh","name":"cx/gpt-5.3-codex-xhigh"},
   {"id":"cx/gpt-5.3-codex-high","name":"cx/gpt-5.3-codex-high"},
   {"id":"cx/gpt-5.2-codex","name":"cx/gpt-5.2-codex"},
-  {"id":"h2cloud","name":"h2cloud"}
+  {"id":"auto","name":"auto"}
 ]'
 
 OPENCLAW_CONFIG="/root/.openclaw/openclaw.json"
