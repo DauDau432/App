@@ -61,7 +61,7 @@ echo ""
 # ─────────────────────────────────────────────────
 # GIAI ĐOẠN 1: KIỂM TRA MÔI TRƯỜNG
 # ─────────────────────────────────────────────────
-echo -e "${CYAN}▶ Giai đoạn 1/3: Kiểm tra môi trường${NC}"
+echo -e "${CYAN}=> Giai đoạn 1/3: Kiểm tra môi trường${NC}"
 echo ""
 
 # 1.1 Hệ điều hành
@@ -176,7 +176,7 @@ echo ""
 # ─────────────────────────────────────────────────
 # GIAI ĐOẠN 2: CÀI NODE.JS + OPENCLAW
 # ─────────────────────────────────────────────────
-echo -e "${CYAN}[Giai đoạn 2/3: Cài đặt]${NC}"
+echo -e "${CYAN}=> Giai đoạn 2/3: Cài đặt${NC}"
 echo ""
 
 # 2.1 Cài jq nếu chưa có (cần cho giai đoạn 3)
@@ -497,7 +497,7 @@ echo ""
 # ─────────────────────────────────────────────────
 # GIAI ĐOẠN 3: SETUP CONFIG + KÍCH HOẠT KEY H2CLOUD
 # ─────────────────────────────────────────────────
-echo -e "${CYAN}▶ Giai đoạn 3/3: Setup config + kích hoạt key H2Cloud${NC}"
+echo -e "${CYAN}=> Giai đoạn 3/3: Setup config + kích hoạt key H2Cloud${NC}"
 echo ""
 
 # 3.1 Thu thập Telegram bot token
