@@ -393,12 +393,6 @@ fetch_provider_models() {
   echo "$DEFAULT_MODELS_JSON"
 }
 
-build_agent_models_json() {
-  local models_json="$1"
-  printf '%s' "$models_json" | jq -c '
-    reduce .[] as $m ({}; .[("h2cloud/" + $m.id)] = {})
-  ' 2>/dev/null || echo '{}'
-}
 
 choose_primary_model() {
   local models_json="$1"
@@ -614,7 +608,6 @@ cp -a "$OPENCLAW_CONFIG" "$BACKUP_PATH"
 ok "Backup config: $BACKUP_PATH"
 
 PROVIDER_MODELS_JSON="$(fetch_provider_models)"
-AGENT_MODELS_JSON="$(build_agent_models_json "$PROVIDER_MODELS_JSON")"
 PRIMARY_MODEL_ID="$(choose_primary_model "$PROVIDER_MODELS_JSON")"
 PRIMARY_MODEL_FULL="$PROVIDER_NAME/$PRIMARY_MODEL_ID"
 info "Model mặc định sẽ dùng: $PRIMARY_MODEL_FULL"
@@ -629,7 +622,6 @@ if [[ "$UPDATE_TELEGRAM" == "yes" ]]; then
     --arg primaryModel "$PRIMARY_MODEL_FULL" \
     --arg botToken "$BOT_TOKEN" \
     --argjson providerModels "$PROVIDER_MODELS_JSON" \
-    --argjson agentModels "$AGENT_MODELS_JSON" \
     --argjson allowFrom "$ALLOW_JSON" \
   '
     .models.providers[$provider] = {
@@ -639,7 +631,7 @@ if [[ "$UPDATE_TELEGRAM" == "yes" ]]; then
       models: $providerModels
     }
     | .agents.defaults.model.primary = $primaryModel
-    | .agents.defaults.models = $agentModels
+    | (.agents.defaults | del(.models))
     | .channels.telegram = ((.channels.telegram // {}) + {
         name: (.channels.telegram.name // "Telegram Bot"),
         enabled: true,
@@ -659,7 +651,6 @@ else
     --arg apiKey "$API_KEY_FIXED" \
     --arg primaryModel "$PRIMARY_MODEL_FULL" \
     --argjson providerModels "$PROVIDER_MODELS_JSON" \
-    --argjson agentModels "$AGENT_MODELS_JSON" \
   '
     .models.providers[$provider] = {
       baseUrl: $baseUrl,
@@ -668,7 +659,7 @@ else
       models: $providerModels
     }
     | .agents.defaults.model.primary = $primaryModel
-    | .agents.defaults.models = $agentModels
+    | (.agents.defaults | del(.models))
     | .plugins.entries.telegram.enabled = true
     | .gateway = ((.gateway // {}) + { mode: "local" })
   ' "$OPENCLAW_CONFIG" > "$TMP_FILE"
