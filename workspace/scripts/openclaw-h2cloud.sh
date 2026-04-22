@@ -374,7 +374,7 @@ fetch_provider_models() {
       if (.data | type) == "array" then
         [.data[]
           | select((.id // "") != "")
-          | select(((.id // "") | startswith("gemini")) | not)
+          | select(((.id // "") | startswith("cx/")) or ((.id // "") == "auto"))
           | { id: .id, name: (.id // .name // "") }
         ]
         | unique_by(.id)
