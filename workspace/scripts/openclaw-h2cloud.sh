@@ -374,6 +374,7 @@ fetch_provider_models() {
       if (.data | type) == "array" then
         [.data[]
           | select((.id // "") != "")
+          | select(((.id // "") == "gemini" and (.owned_by // "") == "combo") | not)
           | { id: .id, name: (.id // .name // "") }
         ]
         | unique_by(.id)
