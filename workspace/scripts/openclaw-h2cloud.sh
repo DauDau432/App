@@ -29,6 +29,7 @@ DEFAULT_MODELS_JSON='[
 ]'
 
 OPENCLAW_CONFIG="/root/.openclaw/openclaw.json"
+AGENT_MODELS_FILE="/root/.openclaw/agents/main/agent/models.json"
 NODE_VERSION="22"
 OPENCLAW_PORT="3080"
 REQUIRED_PORTS=("$OPENCLAW_PORT")
@@ -670,6 +671,31 @@ fi
 mv "$TMP_FILE" "$OPENCLAW_CONFIG"
 ok "Đã patch config H2Cloud provider"
 
+# 3.2b Compatibility patch (OpenClaw 2026.4.22+): patch agent models store
+# Một số bản mới không còn đọc provider từ openclaw.json mà dùng ~/.openclaw/agents/main/agent/models.json
+mkdir -p "$(dirname "$AGENT_MODELS_FILE")"
+if [[ ! -f "$AGENT_MODELS_FILE" ]]; then
+  echo '{"providers":{}}' > "$AGENT_MODELS_FILE"
+fi
+AGENT_MODELS_BAK="${AGENT_MODELS_FILE}.bk-$(date +%Y%m%d-%H%M%S)"
+cp -a "$AGENT_MODELS_FILE" "$AGENT_MODELS_BAK" 2>/dev/null || true
+jq \
+  --arg provider "$PROVIDER_NAME" \
+  --arg baseUrl "$BASE_URL" \
+  --arg apiKey "$API_KEY_FIXED" \
+  --argjson providerModels "$PROVIDER_MODELS_JSON" \
+'
+  .providers = (.providers // {})
+  | .providers[$provider] = {
+      baseUrl: $baseUrl,
+      apiKey: $apiKey,
+      api: "openai-completions",
+      models: $providerModels
+    }
+' "$AGENT_MODELS_FILE" > "${AGENT_MODELS_FILE}.tmp"
+mv "${AGENT_MODELS_FILE}.tmp" "$AGENT_MODELS_FILE"
+ok "Đã patch agent models store: $AGENT_MODELS_FILE"
+
 # 3.3 Khởi động / restart service (với auto-fix thiếu deps)
 start_gateway() {
   if systemctl is-active --quiet openclaw-gateway 2>/dev/null; then
@@ -734,14 +760,27 @@ else
 fi
 
 # 3.4 Verify config cơ bản
+VERIFY_OK=0
 if jq -e --arg p "$PROVIDER_NAME" --arg pm "$PRIMARY_MODEL_FULL" '
-  .models.providers[$p].baseUrl != null and
-  .models.providers[$p].apiKey != null and
-  .agents.defaults.model.primary == $pm
+  (.models.providers[$p].baseUrl != null) and
+  (.models.providers[$p].apiKey != null) and
+  (.agents.defaults.model.primary == $pm)
 ' "$OPENCLAW_CONFIG" >/dev/null 2>&1; then
+  VERIFY_OK=1
+fi
+
+# Verify fallback cho schema mới (agent models store)
+if jq -e --arg p "$PROVIDER_NAME" '
+  (.providers[$p].baseUrl != null) and
+  (.providers[$p].apiKey != null)
+' "$AGENT_MODELS_FILE" >/dev/null 2>&1; then
+  VERIFY_OK=1
+fi
+
+if [[ "$VERIFY_OK" -eq 1 ]]; then
   ok "Verify config: hợp lệ"
 else
-  warn "Verify config: có thể có vấn đề — kiểm tra thủ công tại $OPENCLAW_CONFIG"
+  warn "Verify config: có thể có vấn đề — kiểm tra thủ công tại $OPENCLAW_CONFIG và $AGENT_MODELS_FILE"
 fi
 
 GATEWAY_STATUS_OUTPUT="$(openclaw gateway status 2>/dev/null || true)"
