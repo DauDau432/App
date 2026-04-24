@@ -30,6 +30,7 @@ DEFAULT_MODELS_JSON='[
 
 OPENCLAW_CONFIG="/root/.openclaw/openclaw.json"
 AGENT_MODELS_FILE="/root/.openclaw/agents/main/agent/models.json"
+AGENT_AUTH_FILE="/root/.openclaw/agents/main/agent/auth-profiles.json"
 NODE_VERSION="22"
 OPENCLAW_PORT="3080"
 REQUIRED_PORTS=("$OPENCLAW_PORT")
@@ -696,6 +697,32 @@ jq \
 mv "${AGENT_MODELS_FILE}.tmp" "$AGENT_MODELS_FILE"
 ok "Đã patch agent models store: $AGENT_MODELS_FILE"
 
+# 3.2c Compatibility patch: auth profile store (OpenClaw 2026.4.22+)
+# Runtime mới ưu tiên API key từ ~/.openclaw/agents/main/agent/auth-profiles.json
+mkdir -p "$(dirname "$AGENT_AUTH_FILE")"
+if [[ ! -f "$AGENT_AUTH_FILE" ]]; then
+  echo '{"version":1,"profiles":{}}' > "$AGENT_AUTH_FILE"
+fi
+AGENT_AUTH_BAK="${AGENT_AUTH_FILE}.bk-$(date +%Y%m%d-%H%M%S)"
+cp -a "$AGENT_AUTH_FILE" "$AGENT_AUTH_BAK" 2>/dev/null || true
+jq \
+  --arg provider "$PROVIDER_NAME" \
+  --arg key "$API_KEY_FIXED" \
+'
+  .version = (.version // 1)
+  | .profiles = (.profiles // {})
+  | .profiles[($provider+":manual")] = {
+      type: "api_key",
+      provider: $provider,
+      key: $key
+    }
+  | .lastGood = (.lastGood // {})
+  | .lastGood[$provider] = ($provider+":manual")
+' "$AGENT_AUTH_FILE" > "${AGENT_AUTH_FILE}.tmp"
+mv "${AGENT_AUTH_FILE}.tmp" "$AGENT_AUTH_FILE"
+chmod 600 "$AGENT_AUTH_FILE" 2>/dev/null || true
+ok "Đã patch agent auth store: $AGENT_AUTH_FILE"
+
 # 3.3 Khởi động / restart service (với auto-fix thiếu deps)
 start_gateway() {
   if systemctl is-active --quiet openclaw-gateway 2>/dev/null; then
@@ -769,18 +796,23 @@ if jq -e --arg p "$PROVIDER_NAME" --arg pm "$PRIMARY_MODEL_FULL" '
   VERIFY_OK=1
 fi
 
-# Verify fallback cho schema mới (agent models store)
+# Verify fallback cho schema mới (agent models store + auth store)
 if jq -e --arg p "$PROVIDER_NAME" '
   (.providers[$p].baseUrl != null) and
   (.providers[$p].apiKey != null)
-' "$AGENT_MODELS_FILE" >/dev/null 2>&1; then
+' "$AGENT_MODELS_FILE" >/dev/null 2>&1 \
+&& jq -e --arg p "$PROVIDER_NAME" '
+  (.profiles[($p+":manual")].type == "api_key") and
+  (.profiles[($p+":manual")].key != null) and
+  (.lastGood[$p] == ($p+":manual"))
+' "$AGENT_AUTH_FILE" >/dev/null 2>&1; then
   VERIFY_OK=1
 fi
 
 if [[ "$VERIFY_OK" -eq 1 ]]; then
   ok "Verify config: hợp lệ"
 else
-  warn "Verify config: có thể có vấn đề — kiểm tra thủ công tại $OPENCLAW_CONFIG và $AGENT_MODELS_FILE"
+  warn "Verify config: có thể có vấn đề — kiểm tra thủ công tại $OPENCLAW_CONFIG, $AGENT_MODELS_FILE và $AGENT_AUTH_FILE"
 fi
 
 GATEWAY_STATUS_OUTPUT="$(openclaw gateway status 2>/dev/null || true)"
