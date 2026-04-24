@@ -670,6 +670,12 @@ else
 fi
 
 mv "$TMP_FILE" "$OPENCLAW_CONFIG"
+# Cleanup legacy key (OpenClaw 2026.4.22+ không nhận top-level "model")
+if jq -e '.model != null' "$OPENCLAW_CONFIG" >/dev/null 2>&1; then
+  jq 'del(.model)' "$OPENCLAW_CONFIG" > "${OPENCLAW_CONFIG}.tmp"
+  mv "${OPENCLAW_CONFIG}.tmp" "$OPENCLAW_CONFIG"
+  ok "Đã xóa key legacy: .model"
+fi
 ok "Đã patch config H2Cloud provider"
 
 # 3.2b Compatibility patch (OpenClaw 2026.4.22+): patch agent models store
