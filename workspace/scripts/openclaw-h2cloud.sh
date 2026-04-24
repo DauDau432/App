@@ -637,7 +637,7 @@ if [[ "$UPDATE_TELEGRAM" == "yes" ]]; then
       models: $providerModels
     }
     | .agents.defaults.model.primary = $primaryModel
-    | (.agents.defaults | del(.models))
+    | .agents.defaults |= del(.models)
     | .channels.telegram = ((.channels.telegram // {}) + {
         name: (.channels.telegram.name // "Telegram Bot"),
         enabled: true,
@@ -665,7 +665,7 @@ else
       models: $providerModels
     }
     | .agents.defaults.model.primary = $primaryModel
-    | (.agents.defaults | del(.models))
+    | .agents.defaults |= del(.models)
     | .plugins.entries.telegram.enabled = true
     | .gateway = ((.gateway // {}) + { mode: "local" })
   ' "$OPENCLAW_CONFIG" > "$TMP_FILE"
