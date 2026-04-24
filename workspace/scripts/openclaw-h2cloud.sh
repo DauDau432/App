@@ -535,15 +535,18 @@ if [[ -n "$EXISTING_BOT_TOKEN" && "$EXISTING_ALLOW_COUNT" -gt 0 ]]; then
   TELEGRAM_READY=1
 fi
 
+FORCE_INTERACTIVE="${FORCE_INTERACTIVE:-0}"
+
 if [[ "$TELEGRAM_READY" -eq 1 ]]; then
   # Đã có đầy đủ → hỏi có muốn đổi không
   info "Telegram đã cấu hình sẵn (token: ...${EXISTING_BOT_TOKEN: -8}, ${EXISTING_ALLOW_COUNT} ID)"
   if [[ -z "$BOT_TOKEN" && -z "$TG_IDS_RAW" ]]; then
-    if [[ -t 0 ]]; then
+    if [[ -t 0 || "$FORCE_INTERACTIVE" == "1" ]]; then
       read -r -p "Cập nhật Telegram mới không? [y/N]: " ans
       case "${ans:-N}" in y|Y|yes|YES) UPDATE_TELEGRAM="yes" ;; *) UPDATE_TELEGRAM="no" ;; esac
     else
       UPDATE_TELEGRAM="no"  # non-interactive pipe: giữ nguyên nếu đã có
+      info "Tip: thêm FORCE_INTERACTIVE=1 để vẫn hỏi khi chạy qua pipe"
     fi
   fi
 else
