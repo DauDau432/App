@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # SYS_MONITOR.SH - Cong cu giam sat he thong thoi gian thuc
-# Hien thi CPU, RAM, Disk lien tuc voi giao dien mau sac
+# Hien thi CPU, RAM (Vat ly), SWAP (Ao), Disk lien tuc voi giao dien mau sac
 # Su dung: bash /root/sys_monitor.sh
 # ============================================================================
 
@@ -71,7 +71,7 @@ get_cpu_usage() {
     fi
 }
 
-# --- Ham lay thong tin RAM ---
+# --- Ham lay thong tin RAM (Vat ly) ---
 get_ram_info() {
     local mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     local mem_available=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
@@ -83,7 +83,7 @@ get_ram_info() {
     echo "${mem_percent} ${used_mb} ${total_mb} ${avail_mb}"
 }
 
-# --- Ham lay thong tin SWAP ---
+# --- Ham lay thong tin SWAP (Ao) ---
 get_swap_info() {
     local swap_total=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
     local swap_free=$(awk '/SwapFree/ {print $2}' /proc/meminfo)
@@ -92,9 +92,10 @@ get_swap_info() {
         local swap_percent=$((swap_used * 100 / swap_total))
         local total_mb=$((swap_total / 1024))
         local used_mb=$((swap_used / 1024))
-        echo "${swap_percent} ${used_mb} ${total_mb}"
+        local free_mb=$((swap_free / 1024))
+        echo "${swap_percent} ${used_mb} ${total_mb} ${free_mb}"
     else
-        echo "0 0 0"
+        echo "0 0 0 0"
     fi
 }
 
@@ -175,6 +176,7 @@ while true; do
     swap_percent=${swap_info[0]}
     swap_used=${swap_info[1]}
     swap_total=${swap_info[2]}
+    swap_avail=${swap_info[3]}
 
     load_avg=$(get_load_avg)
     uptime_str=$(get_uptime)
@@ -199,12 +201,12 @@ while true; do
     # --- CPU ---
     draw_section "CPU" "$cpu_percent" "${cpu_cores} cores"
 
-    # --- RAM ---
+    # --- RAM Vat ly (Physical) ---
     draw_section "RAM" "$ram_percent" "${ram_used}MB / ${ram_total}MB (Free: ${ram_avail}MB)"
 
-    # --- SWAP ---
+    # --- SWAP Ao (Virtual) ---
     if [ "$swap_total" -gt 0 ]; then
-        draw_section "SWAP" "$swap_percent" "${swap_used}MB / ${swap_total}MB"
+        draw_section "SWAP" "$swap_percent" "${swap_used}MB / ${swap_total}MB (Free: ${swap_avail}MB)"
     fi
 
     echo ""
