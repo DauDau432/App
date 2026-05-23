@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # SYS_MONITOR.SH - Cong cu giam sat he thong thoi gian thuc
-# Hien thi CPU, RAM (物理), SWAP (虛擬), Disk lien tuc voi giao dien mau sac
+# Hien thi CPU, RAM (Vat ly), SWAP (Ao), Disk lien tuc voi giao dien mau sac
 # Su dung: bash /root/sys_monitor.sh
 # ============================================================================
 
