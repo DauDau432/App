@@ -74,13 +74,13 @@ get_cpu_usage() {
 # --- Ham lay thong tin RAM (Vat ly) ---
 get_ram_info() {
     local mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    local mem_available=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
-    local mem_used=$((mem_total - mem_available))
+    local mem_free=$(awk '/MemFree/ {print $2}' /proc/meminfo)
+    local mem_used=$((mem_total - mem_free))
     local mem_percent=$((mem_used * 100 / mem_total))
     local total_mb=$((mem_total / 1024))
     local used_mb=$((mem_used / 1024))
-    local avail_mb=$((mem_available / 1024))
-    echo "${mem_percent} ${used_mb} ${total_mb} ${avail_mb}"
+    local free_mb=$((mem_free / 1024))
+    echo "${mem_percent} ${used_mb} ${total_mb} ${free_mb}"
 }
 
 # --- Ham lay thong tin SWAP (Ao) ---
@@ -170,13 +170,13 @@ while true; do
     ram_percent=${ram_info[0]}
     ram_used=${ram_info[1]}
     ram_total=${ram_info[2]}
-    ram_avail=${ram_info[3]}
+    ram_free=${ram_info[3]}
 
     swap_info=($(get_swap_info))
     swap_percent=${swap_info[0]}
     swap_used=${swap_info[1]}
     swap_total=${swap_info[2]}
-    swap_avail=${swap_info[3]}
+    swap_free=${swap_info[3]}
 
     load_avg=$(get_load_avg)
     uptime_str=$(get_uptime)
@@ -202,11 +202,11 @@ while true; do
     draw_section "CPU" "$cpu_percent" "${cpu_cores} cores"
 
     # --- RAM Vat ly (Physical) ---
-    draw_section "RAM" "$ram_percent" "${ram_used}MB / ${ram_total}MB (Free: ${ram_avail}MB)"
+    draw_section "RAM" "$ram_percent" "${ram_used}MB / ${ram_total}MB (Free: ${ram_free}MB)"
 
     # --- SWAP Ao (Virtual) ---
     if [ "$swap_total" -gt 0 ]; then
-        draw_section "SWAP" "$swap_percent" "${swap_used}MB / ${swap_total}MB (Free: ${swap_avail}MB)"
+        draw_section "SWAP" "$swap_percent" "${swap_used}MB / ${swap_total}MB (Free: ${swap_free}MB)"
     fi
 
     echo ""
