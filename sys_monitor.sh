@@ -71,8 +71,20 @@ get_cpu_usage() {
     fi
 }
 
-# --- Ham lay thong tin RAM (Vat ly) ---
+# --- Ham lay thong tin RAM (Available, bao gom cache) ---
 get_ram_info() {
+    local mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    local mem_available=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+    local mem_used=$((mem_total - mem_available))
+    local mem_percent=$((mem_used * 100 / mem_total))
+    local total_mb=$((mem_total / 1024))
+    local used_mb=$((mem_used / 1024))
+    local avail_mb=$((mem_available / 1024))
+    echo "${mem_percent} ${used_mb} ${total_mb} ${avail_mb}"
+}
+
+# --- Ham lay thong tin RAM Vat ly (MemFree, khong tinh cache) ---
+get_phys_info() {
     local mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     local mem_free=$(awk '/MemFree/ {print $2}' /proc/meminfo)
     local mem_used=$((mem_total - mem_free))
@@ -172,6 +184,12 @@ while true; do
     ram_total=${ram_info[2]}
     ram_free=${ram_info[3]}
 
+    phys_info=($(get_phys_info))
+    phys_percent=${phys_info[0]}
+    phys_used=${phys_info[1]}
+    phys_total=${phys_info[2]}
+    phys_free=${phys_info[3]}
+
     swap_info=($(get_swap_info))
     swap_percent=${swap_info[0]}
     swap_used=${swap_info[1]}
@@ -201,8 +219,11 @@ while true; do
     # --- CPU ---
     draw_section "CPU" "$cpu_percent" "${cpu_cores} cores"
 
-    # --- RAM Vat ly (Physical) ---
+    # --- RAM (Available, bao gom cache) ---
     draw_section "RAM" "$ram_percent" "${ram_used}MB / ${ram_total}MB (Free: ${ram_free}MB)"
+
+    # --- RAM Vat ly (Physical, khong tinh cache) ---
+    draw_section "PHSY" "$phys_percent" "${phys_used}MB / ${phys_total}MB (Free: ${phys_free}MB)"
 
     # --- SWAP Ao (Virtual) ---
     if [ "$swap_total" -gt 0 ]; then
