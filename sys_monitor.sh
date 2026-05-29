@@ -328,9 +328,9 @@ while true; do
 
     # --- HEADER ---
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
-    printf "${BOLD}${CYAN}|${RST}${BOLD}${WHITE}         >>> SYSTEM MONITOR V2 - REALTIME <<<                   ${RST}${BOLD}${CYAN}|${RST}\n"
+    printf "${BOLD}${CYAN}|${RST}${BOLD}${WHITE}         >>> SYSTEM MONITOR V2 - REALTIME <<<                   ${RST}\n"
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
-    printf "${BOLD}${CYAN}|${RST}  ${GRAY}Host:${RST} ${BOLD}${WHITE}%-16s${RST} ${GRAY}IP:${RST} ${BOLD}${WHITE}%-15s${RST} ${GRAY}%s${RST} ${BOLD}${CYAN}|${RST}\n" "$hostname_str" "$ip_str" "$time_now"
+    printf "${BOLD}${CYAN}|${RST}  ${GRAY}Host:${RST} ${BOLD}${WHITE}%-16s${RST} ${GRAY}IP:${RST} ${BOLD}${WHITE}%-15s${RST} ${GRAY}%s${RST}\n" "$hostname_str" "$ip_str" "$time_now"
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
 
     echo ""
@@ -355,7 +355,7 @@ while true; do
     printf "  ${BOLD}${WHITE}%-8s${RST} " "NET"
     printf "  ${BLUE}${BOLD}↑${RST} ${BLUE}%-24s${RST}" "UL: $ul_speed ($ul_speed_bits)"
     printf "  ${GREEN}${BOLD}↓${RST} ${GREEN}%-24s${RST}" "DL: $dl_speed ($dl_speed_bits)"
-    printf "  ${GRAY}(%s | %s)${RST}\n" "Total ↑: $ul_total" "Total ↓: $dl_total"
+    printf "  ${GRAY}Iface: ${WHITE}%s${RST} ${GRAY}(%s | %s)${RST}\n" "$PRIMARY_IFACE" "Total ↑: $ul_total" "Total ↓: $dl_total"
 
     echo ""
 
