@@ -36,6 +36,21 @@ format_bytes() {
 }
 
 # --- Ham format bytes không có đơn vị (cho tổng traffic) ---
+
+format_bits() {
+    local bytes=$1
+    local bits=$((bytes * 8))
+    if [ "$bits" -ge 1000000000 ]; then
+        echo "$(awk "BEGIN {printf \"%.2f\", $bits/1000000000}")Gb/s"
+    elif [ "$bits" -ge 1000000 ]; then
+        echo "$(awk "BEGIN {printf \"%.2f\", $bits/1000000}")Mb/s"
+    elif [ "$bits" -ge 1000 ]; then
+        echo "$(awk "BEGIN {printf \"%.2f\", $bits/1000}")Kb/s"
+    else
+        echo "${bits}b/s"
+    fi
+}
+
 format_bytes_total() {
     local bytes=$1
     if [ "$bytes" -ge 1073741824 ]; then  # >= 1GB
@@ -281,6 +296,8 @@ while true; do
         first_run=0
         dl_speed="0B/s"
         ul_speed="0B/s"
+        dl_speed_bits="0b/s"
+        ul_speed_bits="0b/s"
         dl_total="0B"
         ul_total="0B"
     else
@@ -291,6 +308,8 @@ while true; do
         # Chuyển bytes/s (delta / 2 giây interval)
         dl_speed=$(format_bytes $((dl_bytes / 2)))
         ul_speed=$(format_bytes $((ul_bytes / 2)))
+        ul_speed_bits=$(format_bits $((ul_bytes / 2)))
+        dl_speed_bits=$(format_bits $((dl_bytes / 2)))
         
         # Tổng traffic
         dl_total=$(format_bytes_total $rx_bytes)
@@ -334,9 +353,9 @@ while true; do
 
     # --- NETWORK ---
     printf "  ${BOLD}${WHITE}%-8s${RST} " "NET"
-    printf "  ${GREEN}${BOLD}↓${RST} ${GREEN}%-10s${RST}" "DL: $dl_speed"
-    printf "  ${BLUE}${BOLD}↑${RST} ${BLUE}%-10s${RST}" "UL: $ul_speed"
-    printf "  ${GRAY}(%s | %s)${RST}\n" "Total ↓: $dl_total" "Total ↑: $ul_total"
+    printf "  ${BLUE}${BOLD}↑${RST} ${BLUE}%-24s${RST}" "UL: $ul_speed ($ul_speed_bits)"
+    printf "  ${GREEN}${BOLD}↓${RST} ${GREEN}%-24s${RST}" "DL: $dl_speed ($dl_speed_bits)"
+    printf "  ${GRAY}(%s | %s)${RST}\n" "Total ↑: $ul_total" "Total ↓: $dl_total"
 
     echo ""
 
@@ -369,11 +388,6 @@ while true; do
     printf "${BOLD}${CYAN}|${RST}  ${MAGENTA}Uptime:${RST} ${BOLD}${WHITE}%-10s${RST}" "$uptime_str"
     printf "  ${MAGENTA}Load:${RST} ${BOLD}${WHITE}%-18s${RST}" "$load_avg"
     printf "  ${MAGENTA}Procs:${RST} ${BOLD}${WHITE}%-5s${RST}" "$proc_count"
-    printf "${BOLD}${CYAN}|${RST}\n"
-    printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
-    printf "${BOLD}${CYAN}|${RST}  ${GREEN}↓${RST} DL: ${GREEN}${BOLD}%-8s${RST}" "$dl_speed"
-    printf "  ${BLUE}↑${RST} UL: ${BLUE}${BOLD}%-8s${RST}" "$ul_speed"
-    printf "  ${GRAY}Iface: ${WHITE}%-8s${RST}" "$PRIMARY_IFACE"
     printf "${BOLD}${CYAN}|${RST}\n"
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
 
