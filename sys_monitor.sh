@@ -5,6 +5,9 @@
 # Su dung: bash /root/sys_monitor.sh
 # ============================================================================
 
+# Version theo ngay: YYYY.MM.DD.N
+SCRIPT_VERSION="$(date +%Y.%m.%d).1"
+
 # --- Mau sac ANSI (tuong thich moi terminal) ---
 RST='\e[0m'
 BOLD='\e[1m'
@@ -328,7 +331,7 @@ while true; do
 
     # --- HEADER ---
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
-    printf "${BOLD}${CYAN}|${RST}${BOLD}${WHITE}         >>> SYSTEM MONITOR V2 - REALTIME <<<                   ${RST}\n"
+    printf "${BOLD}${CYAN}|${RST}${BOLD}${WHITE}         >>> SYSTEM MONITOR v${SCRIPT_VERSION} - REALTIME <<<                   ${RST}\n"
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
     printf "${BOLD}${CYAN}|${RST}  ${GRAY}Host:${RST} ${BOLD}${WHITE}%-16s${RST} ${GRAY}IP:${RST} ${BOLD}${WHITE}%-15s${RST} ${GRAY}%s${RST}\n" "$hostname_str" "$ip_str" "$time_now"
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
@@ -353,10 +356,9 @@ while true; do
 
     # --- NETWORK ---
     printf "  ${BOLD}${WHITE}%-8s${RST} " "NET"
-    printf "  ${BLUE}${BOLD}↑${RST} ${BLUE}%-24s${RST}" "Upload: $ul_speed ($ul_speed_bits)"
-    printf "  ${GREEN}${BOLD}↓${RST} ${GREEN}%-24s${RST}" "Download: $dl_speed ($dl_speed_bits)"
-    printf "  ${GRAY}Iface: ${WHITE}%s${RST}\n" "$PRIMARY_IFACE"
-    printf "  ${GRAY}(Total ↑: %s | Total ↓: %s)${RST}\n" "$ul_total" "$dl_total"
+    printf "${BLUE}Upload ${BOLD}↑${RST}: ${BLUE}%-24s${RST}" "$ul_speed ($ul_speed_bits)"
+    printf "${GREEN}Download ${BOLD}↓${RST}: ${GREEN}%-24s${RST}\n" "$dl_speed ($dl_speed_bits)"
+    printf "  ${GRAY}Iface: ${WHITE}%s${RST} ${GRAY}(Total ↑: %s  Total ↓: %s)${RST}\n" "$PRIMARY_IFACE" "$ul_total" "$dl_total"
 
     echo ""
 
@@ -388,8 +390,7 @@ while true; do
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
     printf "${BOLD}${CYAN}|${RST}  ${MAGENTA}Uptime:${RST} ${BOLD}${WHITE}%-10s${RST}" "$uptime_str"
     printf "  ${MAGENTA}Load:${RST} ${BOLD}${WHITE}%-18s${RST}" "$load_avg"
-    printf "  ${MAGENTA}Procs:${RST} ${BOLD}${WHITE}%-5s${RST}" "$proc_count"
-    printf "${BOLD}${CYAN}|${RST}\n"
+    printf "  ${MAGENTA}Procs:${RST} ${BOLD}${WHITE}%-5s${RST}\n" "$proc_count"
     printf "${BOLD}${CYAN}+--------------------------------------------------------------+${RST}\n"
 
     printf "\n  ${DIM}${GRAY}Press ${WHITE}${BOLD}Ctrl+C${RST}${DIM}${GRAY} to exit  |  Refresh every ~2s${RST}\n"
