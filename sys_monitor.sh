@@ -353,8 +353,8 @@ while true; do
 
     # --- NETWORK ---
     printf "  ${BOLD}${WHITE}%-8s${RST} " "NET"
-    printf "  ${BLUE}${BOLD}↑${RST} ${BLUE}%-24s${RST}" "UL: $ul_speed ($ul_speed_bits)"
-    printf "  ${GREEN}${BOLD}↓${RST} ${GREEN}%-24s${RST}" "DL: $dl_speed ($dl_speed_bits)"
+    printf "  ${BLUE}${BOLD}↑${RST} ${BLUE}%-24s${RST}" "Upload: $ul_speed ($ul_speed_bits)"
+    printf "  ${GREEN}${BOLD}↓${RST} ${GREEN}%-24s${RST}" "Download: $dl_speed ($dl_speed_bits)"
     printf "  ${GRAY}Iface: ${WHITE}%s${RST} ${GRAY}(%s | %s)${RST}\n" "$PRIMARY_IFACE" "Total ↑: $ul_total" "Total ↓: $dl_total"
 
     echo ""
