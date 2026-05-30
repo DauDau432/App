@@ -35,3 +35,22 @@ wget -qO monitor.py https://raw.githubusercontent.com/DauDau432/App/refs/heads/m
 ```
 bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/sys_monitor.sh)
 ```
+
+***thống kê tài nguyên virtualizor***
+```
+bash <(curl -Ls https://raw.githubusercontent.com/DauDau432/App/refs/heads/main/virtualizor.sh)
+```
+
+• hỗ trợ ưu tiên sort theo thứ tự flag:
+
+  • --cpu
+
+  • --ram
+  
+  • --disk
+  
+  • --upload
+  
+  • --download
+
+• có --top N để đổi số lượng VPS hiển thị
